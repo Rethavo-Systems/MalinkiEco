@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="seed">#F45A8C</color>
+    <color name="primary_light">#FFB1C9</color>
+    <color name="on_primary_light">#680026</color>
+    <color name="primary_container_light">#8F0039</color>
+    <color name="on_primary_container_light">#FFD9E4</color>
+    <color name="secondary_light">#9ADDA8</color>
+    <color name="on_secondary_light">#003919</color>
+    <color name="secondary_container_light">#005227</color>
+    <color name="on_secondary_container_light">#B6F2C2</color>
+    <color name="tertiary_light">#E2BE99</color>
+    <color name="background_light">#171214</color>
+    <color name="surface_light">#171214</color>
+    <color name="surface_variant_light">#534347</color>
+    <color name="on_surface_light">#F0DEE2</color>
+    <color name="on_surface_variant_light">#D7C1C6</color>
+    <color name="outline_light">#9F8C90</color>
+    <color name="card_green_light">#173921</color>
+    <color name="chat_mine">#6E1435</color>
+    <color name="chat_other">#193827</color>
+    <color name="summary_clear_light">#173921</color>
+    <color name="summary_debt_light">#5B222B</color>
+    <color name="summary_overpaid_light">#223B5E</color>
+    <color name="gate_overlay_light">#171214</color>
+</resources>

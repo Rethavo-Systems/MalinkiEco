@@ -1,0 +1,14 @@
+<resources>
+    <plurals name="unread_events_title">
+        <item quantity="one">%1$d новое объявление</item>
+        <item quantity="few">%1$d новых объявления</item>
+        <item quantity="many">%1$d новых объявлений</item>
+        <item quantity="other">%1$d новых объявлений</item>
+    </plurals>
+    <plurals name="poll_votes_count">
+        <item quantity="one">%d голос</item>
+        <item quantity="few">%d голоса</item>
+        <item quantity="many">%d голосов</item>
+        <item quantity="other">%d голосов</item>
+    </plurals>
+</resources>

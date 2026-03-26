@@ -1,0 +1,36 @@
+<resources>
+    <style name="Base.Theme.MalinkiEco" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary_light</item>
+        <item name="colorOnPrimary">@color/on_primary_light</item>
+        <item name="colorPrimaryContainer">@color/primary_container_light</item>
+        <item name="colorOnPrimaryContainer">@color/on_primary_container_light</item>
+        <item name="colorSecondary">@color/secondary_light</item>
+        <item name="colorOnSecondary">@color/on_secondary_light</item>
+        <item name="colorSecondaryContainer">@color/secondary_container_light</item>
+        <item name="colorOnSecondaryContainer">@color/on_secondary_container_light</item>
+        <item name="colorTertiary">@color/tertiary_light</item>
+        <item name="android:colorBackground">@color/background_light</item>
+        <item name="colorSurface">@color/surface_light</item>
+        <item name="colorSurfaceVariant">@color/surface_variant_light</item>
+        <item name="colorOnSurface">@color/on_surface_light</item>
+        <item name="colorOnSurfaceVariant">@color/on_surface_variant_light</item>
+        <item name="colorOutline">@color/outline_light</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="materialCardViewFilledStyle">@style/Widget.MalinkiEco.CardView</item>
+        <item name="tabStyle">@style/Widget.MalinkiEco.TabLayout</item>
+    </style>
+
+    <style name="Theme.MalinkiEco" parent="Base.Theme.MalinkiEco" />
+
+    <style name="Widget.MalinkiEco.CardView" parent="Widget.Material3.CardView.Filled">
+        <item name="cardCornerRadius">@dimen/card_radius</item>
+    </style>
+
+    <style name="Widget.MalinkiEco.TabLayout" parent="Widget.Material3.TabLayout">
+        <item name="tabIndicatorColor">@color/primary_light</item>
+        <item name="tabTextColor">@color/on_surface_variant_light</item>
+        <item name="tabSelectedTextColor">@color/primary_light</item>
+        <item name="tabIndicatorFullWidth">false</item>
+    </style>
+</resources>
