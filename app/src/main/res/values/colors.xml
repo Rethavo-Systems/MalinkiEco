@@ -23,4 +23,5 @@
     <color name="summary_debt_light">#F6D2D8</color>
     <color name="summary_overpaid_light">#D8E9FF</color>
     <color name="gate_overlay_light">#F7F1EE</color>
+    <color name="danger_light">#C62828</color>
 </resources>

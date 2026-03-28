@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.malinkieco.R
 import com.example.malinkieco.data.RegistrationRequest
 import com.example.malinkieco.data.RegistrationRequestStatus
+import com.example.malinkieco.util.PhoneFormatUtils
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,7 +51,10 @@ class RegistrationRequestAdapter(
                 request.plots.joinToString(", "),
                 TIME_FORMAT.format(Date(request.createdAtClient))
             )
-            phone.text = itemView.context.getString(R.string.user_phone_format, request.phone)
+            phone.text = itemView.context.getString(
+                R.string.user_phone_format,
+                PhoneFormatUtils.formatRussianPhone(request.phone)
+            )
             phone.visibility = if (request.phone.isBlank()) View.GONE else View.VISIBLE
             status.text = when (request.status) {
                 RegistrationRequestStatus.PENDING -> itemView.context.getString(R.string.registration_request_pending)

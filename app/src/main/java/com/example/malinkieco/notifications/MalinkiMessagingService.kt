@@ -19,6 +19,9 @@ class MalinkiMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
+        if (EventNotificationHelper.isAppInForeground()) {
+            return
+        }
         val title = message.notification?.title
             ?: message.data["title"]
             ?: getString(R.string.push_default_title)

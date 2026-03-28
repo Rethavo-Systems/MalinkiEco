@@ -18,7 +18,8 @@ import java.util.Locale
 class EventAdapter(
     private val lastSeenTimestampProvider: () -> Long,
     private val canCloseChargesProvider: () -> Boolean,
-    private val onCloseCharge: (CommunityEvent) -> Unit
+    private val onCloseCharge: (CommunityEvent) -> Unit,
+    private val showUnreadMarker: Boolean = true
 ) : ListAdapter<CommunityEvent, EventAdapter.EventViewHolder>(DiffCallback) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): EventViewHolder {
@@ -61,9 +62,9 @@ class EventAdapter(
                 }
             }
 
-            val isUnread = event.createdAtClient > lastSeenTimestampProvider()
+            val isUnread = showUnreadMarker && event.createdAtClient > lastSeenTimestampProvider()
             unreadMarker.visibility = if (isUnread) View.VISIBLE else View.GONE
-            itemView.alpha = if (isUnread) 1f else 0.84f
+            itemView.alpha = if (!showUnreadMarker || isUnread) 1f else 0.84f
 
             closeChargeButton.text = if (event.type == EventType.POLL) {
                 itemView.context.getString(R.string.close_poll_button)

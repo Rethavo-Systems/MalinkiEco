@@ -13,6 +13,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.malinkieco.R
 import com.example.malinkieco.data.RemoteUser
 import com.example.malinkieco.data.Role
+import com.example.malinkieco.util.PhoneFormatUtils
 
 class UserListAdapter(
     private val currentUserIdProvider: () -> String?,
@@ -51,7 +52,10 @@ class UserListAdapter(
             title.text = "${user.plotName}  ${user.fullName}"
             email.text = user.email
             email.visibility = if (canManageUsers) View.VISIBLE else View.GONE
-            phone.text = if (user.phone.isBlank()) "" else itemView.context.getString(R.string.user_phone_format, user.phone)
+            phone.text = if (user.phone.isBlank()) "" else itemView.context.getString(
+                R.string.user_phone_format,
+                PhoneFormatUtils.formatRussianPhone(user.phone)
+            )
             phone.visibility = if (canManageUsers && user.phone.isNotBlank()) View.VISIBLE else View.GONE
             role.text = roleLabel(user.role)
             balance.text = itemView.context.getString(R.string.balance_format, user.balance)

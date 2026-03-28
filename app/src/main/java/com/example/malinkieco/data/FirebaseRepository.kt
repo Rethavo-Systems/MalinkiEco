@@ -13,6 +13,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.example.malinkieco.util.PhoneFormatUtils
 import java.security.MessageDigest
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -23,6 +24,12 @@ class FirebaseRepository(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore
 ) {
+    data class RegistrationSubmissionResult(
+        val requestId: String,
+        val idToken: String?,
+        val staffUserIds: List<String>
+    )
+
     private val users = firestore.collection(USERS_COLLECTION)
     private val payments = firestore.collection(PAYMENTS_COLLECTION)
     private val paymentRequests = firestore.collection(PAYMENT_REQUESTS_COLLECTION)
@@ -108,19 +115,21 @@ class FirebaseRepository(
         fullName: String,
         phone: String,
         plots: List<String>
-    ) {
+    ): RegistrationSubmissionResult {
         val normalizedLogin = login.trim()
-        val normalizedPhone = phone.trim()
+        val normalizedPhone = PhoneFormatUtils.normalizeRussianPhone(phone.trim())
         val normalizedPlots = plots.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
         require(normalizedLogin.isNotBlank()) { "Login is required" }
         require(password.isNotBlank()) { "Password is required" }
         require(fullName.isNotBlank()) { "Full name is required" }
         require(normalizedPhone.isNotBlank()) { "Phone is required" }
+        require(normalizedPhone.length == 11 && normalizedPhone.startsWith("8")) { "Phone must contain 10 digits after 8" }
         require(normalizedPlots.isNotEmpty()) { "At least one plot is required" }
 
         try {
             val result = auth.createUserWithEmailAndPassword(normalizeAuthEmail(normalizedLogin), password).await()
             val uid = result.user?.uid ?: error("Created auth user has no uid")
+            val idToken = result.user?.getIdToken(false)?.await()?.token
             registrationRequests.document(uid).set(
                 mapOf(
                     "login" to normalizedLogin,
@@ -135,9 +144,22 @@ class FirebaseRepository(
                     "createdAtClient" to System.currentTimeMillis()
                 )
             ).await()
+            return RegistrationSubmissionResult(
+                requestId = uid,
+                idToken = idToken,
+                staffUserIds = getStaffUserIds()
+            )
         } finally {
             auth.signOut()
         }
+    }
+
+    suspend fun getStaffUserIds(): List<String> {
+        val snapshot = users
+            .whereIn("role", listOf(Role.ADMIN.name, Role.MODERATOR.name))
+            .get()
+            .await()
+        return snapshot.documents.map { it.id }.distinct()
     }
 
     suspend fun getRegistrationRequestForCurrentUser(): RegistrationRequest? {
@@ -547,6 +569,12 @@ class FirebaseRepository(
                 "recipientName" to config.recipientName.trim(),
                 "recipientPhone" to config.recipientPhone.trim(),
                 "bankName" to config.bankName.trim(),
+                "accountNumber" to config.accountNumber.trim(),
+                "paymentPurpose" to config.paymentPurpose.trim(),
+                "bik" to config.bik.trim(),
+                "correspondentAccount" to config.correspondentAccount.trim(),
+                "recipientInn" to config.recipientInn.trim(),
+                "recipientKpp" to config.recipientKpp.trim(),
                 "sbpLink" to config.sbpLink.trim()
             )
         ).await()
@@ -584,6 +612,12 @@ class FirebaseRepository(
                             recipientName = snapshot.getString("recipientName").orEmpty(),
                             recipientPhone = snapshot.getString("recipientPhone").orEmpty(),
                             bankName = snapshot.getString("bankName").orEmpty(),
+                            accountNumber = snapshot.getString("accountNumber").orEmpty(),
+                            paymentPurpose = snapshot.getString("paymentPurpose").orEmpty(),
+                            bik = snapshot.getString("bik").orEmpty(),
+                            correspondentAccount = snapshot.getString("correspondentAccount").orEmpty(),
+                            recipientInn = snapshot.getString("recipientInn").orEmpty(),
+                            recipientKpp = snapshot.getString("recipientKpp").orEmpty(),
                             sbpLink = snapshot.getString("sbpLink").orEmpty()
                         )
                     } else {

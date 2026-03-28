@@ -16,8 +16,8 @@ android {
         applicationId = "com.example.malinkieco"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "2.0b"
+        versionCode = 6
+        versionName = "v2.1b"
         buildConfigField("String", "PAYMENTS_BACKEND_URL", "\"$paymentsBackendUrl\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -48,7 +48,7 @@ android.applicationVariants.configureEach {
     if (buildType.name == "release") {
         outputs.configureEach {
             (this as com.android.build.gradle.internal.api.ApkVariantOutputImpl).outputFileName =
-                "MalinkiEco-v2.0b.apk"
+                "MalinkiEco-v2.1b.apk"
         }
     }
 }

@@ -14,6 +14,9 @@ import com.example.malinkieco.MainActivity
 import com.example.malinkieco.R
 
 object EventNotificationHelper {
+    @Volatile
+    private var appInForeground: Boolean = false
+
     fun showEventNotification(
         context: Context,
         title: String,
@@ -21,6 +24,9 @@ object EventNotificationHelper {
         notificationId: Int = System.currentTimeMillis().toInt(),
         destination: String = ""
     ) {
+        if (appInForeground) {
+            return
+        }
         createNotificationChannel(context)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -77,6 +83,16 @@ object EventNotificationHelper {
             }
             manager.createNotificationChannel(channel)
         }
+    }
+
+    fun setAppInForeground(foreground: Boolean) {
+        appInForeground = foreground
+    }
+
+    fun isAppInForeground(): Boolean = appInForeground
+
+    fun cancelAll(context: Context) {
+        NotificationManagerCompat.from(context).cancelAll()
     }
 
     const val CHANNEL_ID = "community_events"

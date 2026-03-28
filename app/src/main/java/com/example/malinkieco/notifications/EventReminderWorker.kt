@@ -16,6 +16,9 @@ class EventReminderWorker(
 
     override suspend fun doWork(): Result {
         return try {
+            if (EventNotificationHelper.isAppInForeground()) {
+                return Result.success()
+            }
             val auth = FirebaseAuth.getInstance()
             val profile = auth.currentUser?.uid?.let {
                 FirebaseRepository(

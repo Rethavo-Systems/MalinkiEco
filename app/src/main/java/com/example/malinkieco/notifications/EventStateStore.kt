@@ -107,6 +107,22 @@ class EventStateStore(context: Context) {
         preferences.edit().putBoolean(registrationNotificationsEnabledKey(userId), enabled).apply()
     }
 
+    fun isPaymentRequestNotificationsEnabled(userId: String): Boolean {
+        return preferences.getBoolean(paymentRequestNotificationsEnabledKey(userId), true)
+    }
+
+    fun setPaymentRequestNotificationsEnabled(userId: String, enabled: Boolean) {
+        preferences.edit().putBoolean(paymentRequestNotificationsEnabledKey(userId), enabled).apply()
+    }
+
+    fun isRegistrationRequestNotificationsEnabled(userId: String): Boolean {
+        return preferences.getBoolean(registrationRequestNotificationsEnabledKey(userId), true)
+    }
+
+    fun setRegistrationRequestNotificationsEnabled(userId: String, enabled: Boolean) {
+        preferences.edit().putBoolean(registrationRequestNotificationsEnabledKey(userId), enabled).apply()
+    }
+
     fun isPushRegistrationConfirmed(userId: String): Boolean {
         return preferences.getBoolean(pushRegistrationConfirmedKey(userId), false)
     }
@@ -140,6 +156,8 @@ class EventStateStore(context: Context) {
             "polls" -> isPollNotificationsEnabled(userId)
             "payments" -> isPaymentNotificationsEnabled(userId)
             "registration" -> isRegistrationNotificationsEnabled(userId)
+            "payment_requests" -> isPaymentRequestNotificationsEnabled(userId)
+            "registration_requests" -> isRegistrationRequestNotificationsEnabled(userId)
             else -> true
         }
     }
@@ -158,6 +176,8 @@ class EventStateStore(context: Context) {
             .remove(pollNotificationsEnabledKey(userId))
             .remove(paymentNotificationsEnabledKey(userId))
             .remove(registrationNotificationsEnabledKey(userId))
+            .remove(paymentRequestNotificationsEnabledKey(userId))
+            .remove(registrationRequestNotificationsEnabledKey(userId))
             .remove(pushRegistrationConfirmedKey(userId))
             .apply()
     }
@@ -200,6 +220,10 @@ class EventStateStore(context: Context) {
     private fun paymentNotificationsEnabledKey(userId: String): String = "payment_notifications_enabled_$userId"
 
     private fun registrationNotificationsEnabledKey(userId: String): String = "registration_notifications_enabled_$userId"
+
+    private fun paymentRequestNotificationsEnabledKey(userId: String): String = "payment_request_notifications_enabled_$userId"
+
+    private fun registrationRequestNotificationsEnabledKey(userId: String): String = "registration_request_notifications_enabled_$userId"
 
     private fun pushRegistrationConfirmedKey(userId: String): String = "push_registration_confirmed_$userId"
 
