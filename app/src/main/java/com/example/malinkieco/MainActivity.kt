@@ -335,16 +335,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        checkStartupRequirements()
         if (currentUser != null && pushBackendClient.isConfigured()) {
             lifecycleScope.launch {
                 runCatching { registerDeviceForPush() }
             }
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        checkStartupRequirements()
     }
 
     override fun onNewIntent(intent: Intent) {
