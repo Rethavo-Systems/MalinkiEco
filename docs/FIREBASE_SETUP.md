@@ -141,7 +141,7 @@ firebase deploy --only functions
 - Android app already contains FCM client code and a background messaging service.
 - Automatic push for new events works only after Functions are deployed.
 - Without deployed Functions, events still appear in real time inside the app, but system push notifications will not be sent automatically.
-## Firestore Rules for Manual Payments
+## Firestore Rules for Current App Version
 
 ```text
 rules_version = '2';
@@ -173,67 +173,116 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn();
-      allow create: if isAdmin() ||
+
+      allow create: if isAdmin() || isModerator() ||
         (signedIn() &&
          request.auth.uid == userId &&
          request.resource.data.role in ['USER', 'MODERATOR', 'ADMIN']);
+
       allow update: if isAdmin() ||
         (isModerator() &&
          request.resource.data.diff(resource.data).changedKeys().hasOnly(['balance'])) ||
         (signedIn() &&
          request.auth.uid == userId &&
          request.resource.data.diff(resource.data).changedKeys().hasOnly(['lastChatReadAt']));
+
       allow delete: if isAdmin();
     }
 
     match /payments/{paymentId} {
       allow read: if signedIn();
+
       allow create: if isAdmin() || isModerator() ||
         (signedIn() && request.resource.data.userId == request.auth.uid);
+
       allow update, delete: if false;
     }
 
     match /payment_requests/{requestId} {
       allow read: if isAdmin() || isModerator() ||
         (signedIn() && resource.data.userId == request.auth.uid);
+
       allow create: if signedIn() &&
         request.resource.data.userId == request.auth.uid &&
         request.resource.data.status == 'PENDING';
+
       allow update: if isAdmin() || isModerator();
+
       allow delete: if false;
     }
 
     match /registration_requests/{requestId} {
       allow read: if isAdmin() || isModerator() ||
         (signedIn() && request.auth.uid == requestId);
+
       allow create: if signedIn() &&
         request.auth.uid == requestId &&
         request.resource.data.status == 'PENDING';
+
       allow update: if isAdmin() || isModerator();
+
       allow delete: if false;
     }
 
     match /app_settings/{docId} {
-      allow read: if signedIn();
+      allow read: if docId == 'app_gate' || signedIn();
       allow write: if isAdmin() || isModerator();
     }
 
     match /chat_messages/{messageId} {
       allow read: if signedIn();
+
       allow create: if signedIn() &&
         request.resource.data.senderId == request.auth.uid;
+
       allow update: if signedIn() &&
         resource.data.senderId == request.auth.uid &&
         request.resource.data.senderId == resource.data.senderId;
+
       allow delete: if signedIn() &&
         resource.data.senderId == request.auth.uid;
     }
 
     match /events/{eventId} {
       allow read: if signedIn();
-      allow create: if canCreateEvents() &&
-        request.resource.data.createdById == request.auth.uid;
-      allow update, delete: if false;
+
+      allow create: if
+        (
+          canCreateEvents() &&
+          request.resource.data.createdById == request.auth.uid
+        ) ||
+        (
+          signedIn() &&
+          request.resource.data.createdById == request.auth.uid &&
+          request.resource.data.type == 'POLL'
+        );
+
+      allow update: if
+        (
+          canCreateEvents() &&
+          resource.data.type in ['CHARGE', 'POLL'] &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'isClosed',
+            'closedById',
+            'closedByName',
+            'closedAtClient',
+            'message'
+          ])
+        ) ||
+        (
+          signedIn() &&
+          resource.data.type == 'POLL' &&
+          (resource.data.isClosed == false || resource.data.isClosed == null) &&
+          !(request.auth.uid in resource.data.voterIds) &&
+          request.auth.uid in request.resource.data.voterIds &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'pollVotes',
+            'voterIds',
+            'voterChoices'
+          ])
+        );
+
+      allow delete: if false;
     }
   }
 }

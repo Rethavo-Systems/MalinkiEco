@@ -110,6 +110,7 @@
                     android:textStyle="bold" />
 
                 <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilLoginEmail"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp">
@@ -123,9 +124,11 @@
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilLoginPassword"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp">
+                    android:layout_marginTop="12dp"
+                    app:endIconMode="password_toggle">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etLoginPassword"
@@ -358,7 +361,8 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="8dp"
-                                android:text="@string/event_poll_button" />
+                                android:text="@string/event_poll_button"
+                                android:visibility="gone" />
                         </RadioGroup>
 
                         <com.google.android.material.textfield.TextInputLayout
@@ -705,6 +709,77 @@
                     android:orientation="vertical"
                     android:paddingBottom="24dp">
 
+                    <com.google.android.material.card.MaterialCardView
+                        android:id="@+id/pollCreateControls"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="12dp"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/poll_create_title"
+                                android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                                android:textStyle="bold" />
+
+                            <com.google.android.material.textfield.TextInputLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="12dp">
+
+                                <com.google.android.material.textfield.TextInputEditText
+                                    android:id="@+id/etPollTitle"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:hint="@string/event_title_hint" />
+                            </com.google.android.material.textfield.TextInputLayout>
+
+                            <com.google.android.material.textfield.TextInputLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="10dp">
+
+                                <com.google.android.material.textfield.TextInputEditText
+                                    android:id="@+id/etPollMessage"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:hint="@string/event_message_hint"
+                                    android:gravity="top|start"
+                                    android:inputType="textMultiLine|textCapSentences"
+                                    android:minLines="3" />
+                            </com.google.android.material.textfield.TextInputLayout>
+
+                            <com.google.android.material.textfield.TextInputLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="10dp"
+                                android:hint="@string/poll_options_hint">
+
+                                <com.google.android.material.textfield.TextInputEditText
+                                    android:id="@+id/etPollCreateOptions"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:gravity="top|start"
+                                    android:inputType="textMultiLine|textCapSentences"
+                                    android:minLines="3" />
+                            </com.google.android.material.textfield.TextInputLayout>
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnCreatePoll"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="12dp"
+                                android:text="@string/poll_create_button" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -921,6 +996,7 @@
                             </com.google.android.material.textfield.TextInputLayout>
 
                             <com.google.android.material.textfield.TextInputLayout
+                                android:id="@+id/tilNewEmail"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="10dp">
@@ -934,9 +1010,11 @@
                             </com.google.android.material.textfield.TextInputLayout>
 
                             <com.google.android.material.textfield.TextInputLayout
+                                android:id="@+id/tilNewPassword"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="10dp">
+                                android:layout_marginTop="10dp"
+                                app:endIconMode="password_toggle">
 
                                 <com.google.android.material.textfield.TextInputEditText
                                     android:id="@+id/etNewPassword"
@@ -983,12 +1061,130 @@
                 </LinearLayout>
             </androidx.core.widget.NestedScrollView>
 
+            <androidx.core.widget.NestedScrollView
+                android:id="@+id/logsScrollContainer"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:fillViewport="true"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingBottom="24dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/logs_title"
+                        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                        android:textStyle="bold" />
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/rvLogs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:clipToPadding="false"
+                        android:nestedScrollingEnabled="false"
+                        android:paddingBottom="12dp"
+                        tools:listitem="@layout/item_audit_log" />
+
+                    <TextView
+                        android:id="@+id/tvLogsEmpty"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text="@string/logs_empty"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </androidx.core.widget.NestedScrollView>
+
             <LinearLayout
                 android:id="@+id/chatContainer"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:orientation="vertical"
                 android:visibility="gone">
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/pinnedMessageCard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="10dp"
+                    android:visibility="gone"
+                    app:cardBackgroundColor="@color/primary_container_light"
+                    app:strokeColor="@color/primary_light"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="14dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/chat_pinned_banner_title"
+                            android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
+                            android:textColor="@color/primary_light"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvPinnedMessageTitle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvPinnedMessageBody"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:maxLines="2"
+                            android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/chatNotificationsCard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="10dp"
+                    app:cardBackgroundColor="@color/surface_light">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="14dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/chat_notifications_title"
+                            android:textAppearance="@style/TextAppearance.Material3.TitleSmall"
+                            android:textStyle="bold" />
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchChatNotifications"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="@string/chat_notifications_toggle" />
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchMentionNotifications"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/chat_mentions_toggle" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
 
                 <FrameLayout
                     android:layout_width="match_parent"
@@ -1022,45 +1218,112 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="bottom"
-                        android:orientation="horizontal"
+                        android:orientation="vertical"
                         android:padding="12dp">
 
-                        <com.google.android.material.textfield.TextInputLayout
-                            android:layout_width="0dp"
+                        <LinearLayout
+                            android:id="@+id/chatReplyPreviewContainer"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            app:boxBackgroundMode="outline"
-                            app:boxCornerRadiusBottomEnd="24dp"
-                            app:boxCornerRadiusBottomStart="24dp"
-                            app:boxCornerRadiusTopEnd="24dp"
-                            app:boxCornerRadiusTopStart="24dp">
+                            android:layout_marginBottom="10dp"
+                            android:background="@drawable/bg_chat_reply_preview"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:padding="10dp"
+                            android:visibility="gone">
 
-                            <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/etChatMessage"
-                                android:layout_width="match_parent"
+                            <LinearLayout
+                                android:layout_width="0dp"
                                 android:layout_height="wrap_content"
-                                android:hint="@string/chat_hint"
-                                android:gravity="top|start"
-                                android:inputType="textMultiLine|textCapSentences"
-                                android:maxLines="4"
-                                android:minLines="1" />
-                        </com.google.android.material.textfield.TextInputLayout>
+                                android:layout_weight="1"
+                                android:orientation="vertical">
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnSendMessage"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="12dp"
-                            android:contentDescription="@string/send_button"
-                            android:insetTop="0dp"
-                            android:insetBottom="0dp"
-                            android:minWidth="0dp"
-                            android:text=""
-                            app:cornerRadius="24dp"
-                            app:icon="@android:drawable/ic_menu_send"
-                            app:iconGravity="textStart"
-                            app:iconPadding="0dp" />
+                                <TextView
+                                    android:id="@+id/tvReplyingToTitle"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:textAppearance="@style/TextAppearance.Material3.LabelMedium"
+                                    android:textColor="@color/primary_light"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tvReplyingToBody"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:maxLines="2"
+                                    android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                            </LinearLayout>
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnCancelReply"
+                                style="?attr/materialButtonOutlinedStyle"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:contentDescription="@string/chat_cancel_reply"
+                                app:icon="@android:drawable/ic_menu_close_clear_cancel" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="bottom"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnAttachPlaceholder"
+                                style="?attr/materialButtonOutlinedStyle"
+                                android:layout_width="44dp"
+                                android:layout_height="44dp"
+                                android:contentDescription="@string/chat_attachment_placeholder"
+                                app:icon="@android:drawable/ic_menu_add" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnMentionUser"
+                                style="?attr/materialButtonOutlinedStyle"
+                                android:layout_width="44dp"
+                                android:layout_height="44dp"
+                                android:layout_marginStart="8dp"
+                                android:contentDescription="@string/chat_mention_user"
+                                app:icon="@android:drawable/ic_menu_myplaces" />
+
+                            <com.google.android.material.textfield.TextInputLayout
+                                android:id="@+id/chatComposerInputLayout"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="8dp"
+                                android:layout_weight="1"
+                                app:boxBackgroundMode="outline"
+                                app:boxCornerRadiusBottomEnd="26dp"
+                                app:boxCornerRadiusBottomStart="26dp"
+                                app:boxCornerRadiusTopEnd="26dp"
+                                app:boxCornerRadiusTopStart="26dp">
+
+                                <com.google.android.material.textfield.TextInputEditText
+                                    android:id="@+id/etChatMessage"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:hint="@string/chat_hint"
+                                    android:inputType="textMultiLine|textCapSentences"
+                                    android:maxLines="4"
+                                    android:minLines="1" />
+                            </com.google.android.material.textfield.TextInputLayout>
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnSendMessage"
+                                android:layout_width="46dp"
+                                android:layout_height="46dp"
+                                android:layout_marginStart="10dp"
+                                android:contentDescription="@string/send_button"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:minWidth="0dp"
+                                android:text=""
+                                app:cornerRadius="23dp"
+                                app:icon="@android:drawable/ic_menu_send"
+                                app:iconGravity="textStart"
+                                app:iconPadding="0dp" />
+                        </LinearLayout>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
@@ -1132,6 +1395,15 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:text="@string/gate_close_button"
+                    android:visibility="gone" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnGateTertiary"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/gate_github_button"
                     android:visibility="gone" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

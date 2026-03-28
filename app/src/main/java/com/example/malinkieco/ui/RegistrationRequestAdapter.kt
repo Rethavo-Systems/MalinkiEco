@@ -33,6 +33,7 @@ class RegistrationRequestAdapter(
     inner class RequestViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val title: TextView = itemView.findViewById(R.id.tvRegistrationTitle)
         private val meta: TextView = itemView.findViewById(R.id.tvRegistrationMeta)
+        private val phone: TextView = itemView.findViewById(R.id.tvRegistrationPhone)
         private val status: TextView = itemView.findViewById(R.id.tvRegistrationStatus)
         private val reason: TextView = itemView.findViewById(R.id.tvRegistrationReason)
         private val approveButton: Button = itemView.findViewById(R.id.btnApproveRegistration)
@@ -49,6 +50,8 @@ class RegistrationRequestAdapter(
                 request.plots.joinToString(", "),
                 TIME_FORMAT.format(Date(request.createdAtClient))
             )
+            phone.text = itemView.context.getString(R.string.user_phone_format, request.phone)
+            phone.visibility = if (request.phone.isBlank()) View.GONE else View.VISIBLE
             status.text = when (request.status) {
                 RegistrationRequestStatus.PENDING -> itemView.context.getString(R.string.registration_request_pending)
                 RegistrationRequestStatus.APPROVED -> itemView.context.getString(

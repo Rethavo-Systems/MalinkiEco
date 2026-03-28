@@ -12,6 +12,7 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.text.InputType
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -28,6 +29,7 @@ import androidx.core.content.pm.PackageInfoCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.malinkieco.data.ChatMessage
@@ -39,12 +41,15 @@ import com.example.malinkieco.data.ChargeSuggestion
 import com.example.malinkieco.data.ManualPaymentRequest
 import com.example.malinkieco.data.ManualPaymentStatus
 import com.example.malinkieco.data.PaymentTransferConfig
+import com.example.malinkieco.data.PushBackendClient
 import com.example.malinkieco.data.RegistrationRequest
 import com.example.malinkieco.data.RegistrationRequestStatus
 import com.example.malinkieco.data.RemoteUser
 import com.example.malinkieco.data.Role
 import com.example.malinkieco.notifications.EventReminderScheduler
 import com.example.malinkieco.notifications.EventStateStore
+import com.example.malinkieco.notifications.EventNotificationHelper
+import com.example.malinkieco.ui.AuditLogAdapter
 import com.example.malinkieco.ui.ChatAdapter
 import com.example.malinkieco.ui.EventAdapter
 import com.example.malinkieco.ui.PaymentRequestAdapter
@@ -53,6 +58,8 @@ import com.example.malinkieco.ui.RegistrationRequestAdapter
 import com.example.malinkieco.ui.UserListAdapter
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
@@ -60,9 +67,13 @@ import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.suspendCoroutine
 
 class MainActivity : AppCompatActivity() {
     private data class EventTemplate(
@@ -75,9 +86,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var loginContainer: LinearLayout
     private lateinit var dashboardContainer: LinearLayout
     private lateinit var eventsContainer: View
+    private lateinit var eventsContent: LinearLayout
+    private lateinit var communityFundsCard: View
     private lateinit var pollsContainer: View
+    private lateinit var pollCreateControls: View
     private lateinit var residentsContainer: View
+    private lateinit var logsContainer: View
     private lateinit var chatContainer: LinearLayout
+    private lateinit var tilLoginEmail: TextInputLayout
+    private lateinit var tilLoginPassword: TextInputLayout
     private lateinit var etLoginEmail: EditText
     private lateinit var etLoginPassword: EditText
     private lateinit var btnLogin: Button
@@ -102,6 +119,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvGateMessage: TextView
     private lateinit var btnGatePrimary: Button
     private lateinit var btnGateSecondary: Button
+    private lateinit var btnGateTertiary: Button
     private lateinit var btnTogglePaymentRequests: Button
     private lateinit var paymentRequestsHeader: View
     private lateinit var adminControls: View
@@ -109,7 +127,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adminFormContainer: View
     private lateinit var etNewPlot: EditText
     private lateinit var etNewFullName: EditText
+    private lateinit var tilNewEmail: TextInputLayout
     private lateinit var etNewEmail: EditText
+    private lateinit var tilNewPassword: TextInputLayout
     private lateinit var etNewPassword: EditText
     private lateinit var btnAddUser: Button
     private lateinit var eventControls: View
@@ -141,15 +161,34 @@ class MainActivity : AppCompatActivity() {
     private lateinit var rvEvents: RecyclerView
     private lateinit var rvPolls: RecyclerView
     private lateinit var rvUsers: RecyclerView
+    private lateinit var rvLogs: RecyclerView
     private lateinit var rvChat: RecyclerView
     private lateinit var rvPaymentRequests: RecyclerView
     private lateinit var rvRegistrationRequests: RecyclerView
     private lateinit var chatLayoutManager: LinearLayoutManager
     private lateinit var tabLayout: TabLayout
     private lateinit var etChatMessage: EditText
+    private lateinit var chatComposerInputLayout: TextInputLayout
     private lateinit var btnSendMessage: Button
+    private lateinit var btnMentionUser: Button
+    private lateinit var btnAttachPlaceholder: Button
+    private lateinit var pinnedMessageCard: MaterialCardView
+    private lateinit var tvPinnedMessageTitle: TextView
+    private lateinit var tvPinnedMessageBody: TextView
+    private lateinit var chatReplyPreviewContainer: View
+    private lateinit var tvReplyingToTitle: TextView
+    private lateinit var tvReplyingToBody: TextView
+    private lateinit var btnCancelReply: Button
+    private lateinit var chatNotificationsCard: MaterialCardView
+    private lateinit var switchChatNotifications: MaterialSwitch
+    private lateinit var switchMentionNotifications: MaterialSwitch
     private lateinit var tvEventsEmpty: TextView
     private lateinit var tvPollsEmpty: TextView
+    private lateinit var tvLogsEmpty: TextView
+    private lateinit var etPollTitle: EditText
+    private lateinit var etPollMessage: EditText
+    private lateinit var etPollCreateOptions: EditText
+    private lateinit var btnCreatePoll: Button
     private lateinit var tvResidentsEmpty: TextView
     private lateinit var tvChatEmpty: TextView
     private lateinit var tvPaymentRequestsEmpty: TextView
@@ -163,27 +202,31 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var repository: FirebaseRepository
     private lateinit var eventStateStore: EventStateStore
+    private val pushBackendClient = PushBackendClient()
     private lateinit var userAdapter: UserListAdapter
     private lateinit var chatAdapter: ChatAdapter
     private lateinit var eventAdapter: EventAdapter
     private lateinit var pollAdapter: PollAdapter
+    private lateinit var auditLogAdapter: AuditLogAdapter
     private lateinit var paymentRequestAdapter: PaymentRequestAdapter
     private lateinit var registrationRequestAdapter: RegistrationRequestAdapter
 
     private var currentUser: RemoteUser? = null
     private var currentPaymentConfig = PaymentTransferConfig()
     private var allUsers = emptyList<RemoteUser>()
-    private var selectedChargeEvent: ChargeSuggestion? = null
+    private var selectedChargeEvents = emptyList<ChargeSuggestion>()
     private var availableChargeEvents = emptyList<ChargeSuggestion>()
     private var latestEvents = emptyList<CommunityEvent>()
     private var latestPolls = emptyList<CommunityEvent>()
     private var usersListener: ListenerRegistration? = null
     private var chatListener: ListenerRegistration? = null
     private var eventsListener: ListenerRegistration? = null
+    private var auditLogsListener: ListenerRegistration? = null
     private var paymentRequestsListener: ListenerRegistration? = null
     private var paymentConfigListener: ListenerRegistration? = null
     private var registrationRequestsListener: ListenerRegistration? = null
     private var communityFundsListener: ListenerRegistration? = null
+    private var pinnedMessageListener: ListenerRegistration? = null
     private var isAdminPanelExpanded = false
     private var isPaymentRequestsExpanded = false
     private var isRegistrationRequestsExpanded = false
@@ -193,12 +236,20 @@ class MainActivity : AppCompatActivity() {
 
     private val latestMessages = mutableListOf<ChatMessage>()
     private val olderMessages = mutableListOf<ChatMessage>()
+    private var pinnedMessage: ChatMessage? = null
+    private var replyingToMessage: ChatMessage? = null
+    private val selectedMentionedUsers = linkedSetOf<RemoteUser>()
     private var isLoadingOlderMessages = false
     private var hasMoreOlderMessages = true
     private var lastSeenEventTimestamp = 0L
     private var eventsInitialized = false
     private var hasInitializedSession = false
     private var currentGateConfig: AppGateConfig? = null
+    private var gatePrimaryAction: (() -> Unit)? = null
+    private var gateSecondaryAction: (() -> Unit)? = null
+    private var gateTertiaryAction: (() -> Unit)? = null
+    private var hasInitializedChatNotifications = false
+    private var pendingNotificationDestination: String? = null
 
     private val notificationsPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -226,6 +277,7 @@ class MainActivity : AppCompatActivity() {
         setupLists()
         setupTabs()
         setupListeners()
+        captureNotificationDestination(intent)
         checkStartupRequirements()
     }
 
@@ -234,14 +286,23 @@ class MainActivity : AppCompatActivity() {
         checkStartupRequirements()
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureNotificationDestination(intent)
+        applyPendingNotificationDestination()
+    }
+
     override fun onDestroy() {
         usersListener?.remove()
         chatListener?.remove()
         eventsListener?.remove()
+        auditLogsListener?.remove()
         paymentRequestsListener?.remove()
         paymentConfigListener?.remove()
         registrationRequestsListener?.remove()
         communityFundsListener?.remove()
+        pinnedMessageListener?.remove()
         super.onDestroy()
     }
 
@@ -249,9 +310,15 @@ class MainActivity : AppCompatActivity() {
         loginContainer = findViewById(R.id.loginContainer)
         dashboardContainer = findViewById(R.id.dashboardContainer)
         eventsContainer = findViewById(R.id.eventsScrollContainer)
+        eventsContent = findViewById(R.id.eventsContainer)
+        communityFundsCard = findViewById(R.id.communityFundsCard)
         pollsContainer = findViewById(R.id.pollsScrollContainer)
+        pollCreateControls = findViewById(R.id.pollCreateControls)
         residentsContainer = findViewById(R.id.residentsScrollContainer)
+        logsContainer = findViewById(R.id.logsScrollContainer)
         chatContainer = findViewById(R.id.chatContainer)
+        tilLoginEmail = findViewById(R.id.tilLoginEmail)
+        tilLoginPassword = findViewById(R.id.tilLoginPassword)
         etLoginEmail = findViewById(R.id.etLoginEmail)
         etLoginPassword = findViewById(R.id.etLoginPassword)
         btnLogin = findViewById(R.id.btnLogin)
@@ -276,6 +343,7 @@ class MainActivity : AppCompatActivity() {
         tvGateMessage = findViewById(R.id.tvGateMessage)
         btnGatePrimary = findViewById(R.id.btnGatePrimary)
         btnGateSecondary = findViewById(R.id.btnGateSecondary)
+        btnGateTertiary = findViewById(R.id.btnGateTertiary)
         btnTogglePaymentRequests = findViewById(R.id.btnTogglePaymentRequests)
         paymentRequestsHeader = findViewById(R.id.paymentRequestsHeader)
         adminControls = findViewById(R.id.adminControls)
@@ -283,7 +351,9 @@ class MainActivity : AppCompatActivity() {
         adminFormContainer = findViewById(R.id.adminFormContainer)
         etNewPlot = findViewById(R.id.etNewPlot)
         etNewFullName = findViewById(R.id.etNewFullName)
+        tilNewEmail = findViewById(R.id.tilNewEmail)
         etNewEmail = findViewById(R.id.etNewEmail)
+        tilNewPassword = findViewById(R.id.tilNewPassword)
         etNewPassword = findViewById(R.id.etNewPassword)
         btnAddUser = findViewById(R.id.btnAddUser)
         eventControls = findViewById(R.id.eventControls)
@@ -314,16 +384,35 @@ class MainActivity : AppCompatActivity() {
         btnCopyPaymentDetails = findViewById(R.id.btnCopyPaymentDetails)
         rvEvents = findViewById(R.id.rvEvents)
         rvPolls = findViewById(R.id.rvPolls)
+        etPollTitle = findViewById(R.id.etPollTitle)
+        etPollMessage = findViewById(R.id.etPollMessage)
+        etPollCreateOptions = findViewById(R.id.etPollCreateOptions)
+        btnCreatePoll = findViewById(R.id.btnCreatePoll)
         rvUsers = findViewById(R.id.rvUsers)
+        rvLogs = findViewById(R.id.rvLogs)
         rvChat = findViewById(R.id.rvChat)
         rvPaymentRequests = findViewById(R.id.rvPaymentRequests)
         rvRegistrationRequests = findViewById(R.id.rvRegistrationRequests)
         tabLayout = findViewById(R.id.tabLayout)
+        pinnedMessageCard = findViewById(R.id.pinnedMessageCard)
+        tvPinnedMessageTitle = findViewById(R.id.tvPinnedMessageTitle)
+        tvPinnedMessageBody = findViewById(R.id.tvPinnedMessageBody)
+        chatNotificationsCard = findViewById(R.id.chatNotificationsCard)
+        switchChatNotifications = findViewById(R.id.switchChatNotifications)
+        switchMentionNotifications = findViewById(R.id.switchMentionNotifications)
+        chatReplyPreviewContainer = findViewById(R.id.chatReplyPreviewContainer)
+        tvReplyingToTitle = findViewById(R.id.tvReplyingToTitle)
+        tvReplyingToBody = findViewById(R.id.tvReplyingToBody)
+        btnCancelReply = findViewById(R.id.btnCancelReply)
+        btnAttachPlaceholder = findViewById(R.id.btnAttachPlaceholder)
+        btnMentionUser = findViewById(R.id.btnMentionUser)
+        chatComposerInputLayout = findViewById(R.id.chatComposerInputLayout)
         etChatMessage = findViewById(R.id.etChatMessage)
         btnSendMessage = findViewById(R.id.btnSendMessage)
         tvEventsEmpty = findViewById(R.id.tvEventsEmpty)
         tvPollsEmpty = findViewById(R.id.tvPollsEmpty)
         tvResidentsEmpty = findViewById(R.id.tvResidentsEmpty)
+        tvLogsEmpty = findViewById(R.id.tvLogsEmpty)
         tvChatEmpty = findViewById(R.id.tvChatEmpty)
         tvPaymentRequestsEmpty = findViewById(R.id.tvPaymentRequestsEmpty)
         paymentRequestsPanel = findViewById(R.id.paymentRequestsPanel)
@@ -365,6 +454,10 @@ class MainActivity : AppCompatActivity() {
         rvPolls.layoutManager = LinearLayoutManager(this)
         rvPolls.adapter = pollAdapter
 
+        auditLogAdapter = AuditLogAdapter()
+        rvLogs.layoutManager = LinearLayoutManager(this)
+        rvLogs.adapter = auditLogAdapter
+
         paymentRequestAdapter = PaymentRequestAdapter(
             canReviewProvider = { canReviewPayments() },
             onConfirm = { request -> confirmPaymentRequest(request) },
@@ -383,12 +476,27 @@ class MainActivity : AppCompatActivity() {
         chatAdapter = ChatAdapter(
             currentUserIdProvider = { currentUser?.id },
             readerCutoffProvider = { allUsers.filter { it.id != currentUser?.id }.maxOfOrNull { it.lastChatReadAt } ?: 0L },
+            onReplyMessage = { message -> startReplyToMessage(message) },
+            onTogglePinMessage = { message -> togglePinMessage(message) },
             onEditMessage = { message -> promptEditMessage(message) },
             onDeleteMessage = { message -> confirmDeleteMessage(message) }
         )
         chatLayoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
         rvChat.layoutManager = chatLayoutManager
         rvChat.adapter = chatAdapter
+        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean = false
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                val message = chatAdapter.currentList.getOrNull(viewHolder.bindingAdapterPosition) ?: return
+                startReplyToMessage(message)
+                chatAdapter.notifyItemChanged(viewHolder.bindingAdapterPosition)
+            }
+        }).attachToRecyclerView(rvChat)
         rvChat.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
@@ -401,17 +509,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupTabs() {
         tabLayout.addTab(tabLayout.newTab().setText(R.string.events_tab))
-        tabLayout.addTab(tabLayout.newTab().setText(R.string.polls_tab))
-        tabLayout.addTab(tabLayout.newTab().setText(R.string.residents_tab))
         tabLayout.addTab(tabLayout.newTab().setText(R.string.chat_tab))
+        tabLayout.addTab(tabLayout.newTab().setText(R.string.residents_tab))
+        tabLayout.addTab(tabLayout.newTab().setText(R.string.polls_tab))
+        tabLayout.addTab(tabLayout.newTab().setText(R.string.logs_tab))
         showEventsTab()
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 when (tab.position) {
                     0 -> showEventsTab()
-                    1 -> showPollsTab()
+                    1 -> showChatTab()
                     2 -> showResidentsTab()
-                    else -> showChatTab()
+                    3 -> showPollsTab()
+                    else -> showLogsTab()
                 }
             }
 
@@ -448,7 +558,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updatePollsTabBadge(count: Int) {
-        val tab = tabLayout.getTabAt(1) ?: return
+        val tab = tabLayout.getTabAt(3) ?: return
         if (count > 0) {
             val badge = tab.orCreateBadge
             badge.isVisible = true
@@ -462,13 +572,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupListeners() {
         btnLogin.setOnClickListener { doLogin() }
-        btnOpenRegistration.setOnClickListener { openRegistrationDialog() }
+        btnOpenRegistration.setOnClickListener { showRegistrationFormDialog() }
         btnLogout.setOnClickListener { doLogout() }
         btnAddUser.setOnClickListener { addUser() }
         btnCreateEvent.setOnClickListener { createEvent() }
+        btnCreatePoll.setOnClickListener { createPoll() }
         btnPay.setOnClickListener { createManualPaymentRequest() }
         btnSelectChargeEvent.setOnClickListener { chooseChargeEvent() }
         btnSendMessage.setOnClickListener { sendMessage() }
+        btnAttachPlaceholder.setOnClickListener { toast(getString(R.string.chat_attachment_unavailable)) }
+        btnMentionUser.setOnClickListener { showMentionPicker() }
+        btnCancelReply.setOnClickListener { clearReplyTarget() }
         btnToggleAdminPanel.setOnClickListener { toggleAdminPanel() }
         btnTogglePaymentRequests.setOnClickListener { togglePaymentRequestsPanel() }
         btnToggleRegistrationRequests.setOnClickListener { toggleRegistrationRequestsPanel() }
@@ -477,8 +591,9 @@ class MainActivity : AppCompatActivity() {
             currentEventsLimit += EVENTS_PAGE_SIZE
             currentUser?.let { attachRealtimeListeners(it) }
         }
-        btnGatePrimary.setOnClickListener { onGatePrimaryAction() }
-        btnGateSecondary.setOnClickListener { finishAffinity() }
+        btnGatePrimary.setOnClickListener { gatePrimaryAction?.invoke() ?: onGatePrimaryAction() }
+        btnGateSecondary.setOnClickListener { gateSecondaryAction?.invoke() ?: finishAffinity() }
+        btnGateTertiary.setOnClickListener { gateTertiaryAction?.invoke() }
         btnOpenSbp.setOnClickListener { openSbpLink() }
         btnCopyPaymentDetails.setOnClickListener { copyPaymentDetails() }
         btnSavePaymentConfig.setOnClickListener { savePaymentConfig() }
@@ -502,6 +617,12 @@ class MainActivity : AppCompatActivity() {
             if (isChecked) {
                 updateEventForm()
             }
+        }
+        switchChatNotifications.setOnCheckedChangeListener { _, isChecked ->
+            currentUser?.id?.let { eventStateStore.setChatNotificationsEnabled(it, isChecked) }
+        }
+        switchMentionNotifications.setOnCheckedChangeListener { _, isChecked ->
+            currentUser?.id?.let { eventStateStore.setMentionNotificationsEnabled(it, isChecked) }
         }
         updateEventForm()
         setupEventTemplates()
@@ -533,6 +654,9 @@ class MainActivity : AppCompatActivity() {
                 currentGateConfig = config
                 val mustUpdate = config?.minSupportedVersionCode?.let { currentVersionCode() < it } ?: false
                 if (mustUpdate) {
+                    val primaryUrl = config?.githubReleaseUrl?.ifBlank { config.updateUrl } ?: config?.updateUrl.orEmpty()
+                    val rustoreUrl = config?.rustoreUrl?.ifBlank { config.updateUrl } ?: config?.updateUrl.orEmpty()
+                    val githubRepoUrl = config?.githubRepoUrl.orEmpty()
                     showGate(
                         title = config?.updateTitle?.ifBlank { getString(R.string.gate_update_default_title) }
                             ?: getString(R.string.gate_update_default_title),
@@ -548,8 +672,14 @@ class MainActivity : AppCompatActivity() {
                                 append(latestVersion)
                             }
                         },
-                        primaryText = getString(R.string.gate_update_button),
-                        showSecondary = false
+                        primaryText = getString(R.string.gate_download_apk_button),
+                        showSecondary = rustoreUrl.isNotBlank(),
+                        secondaryText = getString(R.string.gate_rustore_button),
+                        showTertiary = githubRepoUrl.isNotBlank(),
+                        tertiaryText = getString(R.string.gate_github_button),
+                        onPrimary = { openUpdateUrl(primaryUrl) },
+                        onSecondary = { openUpdateUrl(rustoreUrl) },
+                        onTertiary = { openUpdateUrl(githubRepoUrl) }
                     )
                 } else {
                     hideGate()
@@ -564,7 +694,10 @@ class MainActivity : AppCompatActivity() {
                     title = getString(R.string.gate_check_failed_title),
                     message = getString(R.string.gate_check_failed_message),
                     primaryText = getString(R.string.gate_retry_button),
-                    showSecondary = true
+                    showSecondary = true,
+                    secondaryText = getString(R.string.gate_close_button),
+                    onPrimary = { checkStartupRequirements() },
+                    onSecondary = { finishAffinity() }
                 )
             }
         }
@@ -585,18 +718,33 @@ class MainActivity : AppCompatActivity() {
         message: String,
         primaryText: String,
         showSecondary: Boolean,
-        primaryEnabled: Boolean = true
+        secondaryText: String = getString(R.string.gate_close_button),
+        showTertiary: Boolean = false,
+        tertiaryText: String = getString(R.string.gate_github_button),
+        primaryEnabled: Boolean = true,
+        onPrimary: (() -> Unit)? = null,
+        onSecondary: (() -> Unit)? = null,
+        onTertiary: (() -> Unit)? = null
     ) {
         appGateContainer.visibility = View.VISIBLE
         tvGateTitle.text = title
         tvGateMessage.text = message
         btnGatePrimary.text = primaryText
         btnGatePrimary.isEnabled = primaryEnabled
+        btnGateSecondary.text = secondaryText
         btnGateSecondary.visibility = if (showSecondary) View.VISIBLE else View.GONE
+        btnGateTertiary.text = tertiaryText
+        btnGateTertiary.visibility = if (showTertiary) View.VISIBLE else View.GONE
+        gatePrimaryAction = onPrimary
+        gateSecondaryAction = onSecondary
+        gateTertiaryAction = onTertiary
     }
 
     private fun hideGate() {
         appGateContainer.visibility = View.GONE
+        gatePrimaryAction = null
+        gateSecondaryAction = null
+        gateTertiaryAction = null
     }
 
     private fun hasInternetConnection(): Boolean {
@@ -641,8 +789,17 @@ class MainActivity : AppCompatActivity() {
     private fun doLogin() {
         val email = etLoginEmail.text.toString().trim()
         val password = etLoginPassword.text.toString()
-        if (email.isBlank() || password.isBlank()) {
-            toast(getString(R.string.login_empty_fields))
+        tilLoginEmail.error = null
+        tilLoginPassword.error = null
+        if (email.isBlank()) {
+            tilLoginEmail.error = getString(R.string.validation_email_required)
+        } else if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            tilLoginEmail.error = getString(R.string.validation_email_invalid)
+        }
+        if (password.isBlank()) {
+            tilLoginPassword.error = getString(R.string.validation_password_required)
+        }
+        if (tilLoginEmail.error != null || tilLoginPassword.error != null) {
             return
         }
 
@@ -671,6 +828,7 @@ class MainActivity : AppCompatActivity() {
         val isAdmin = user.role == Role.ADMIN
         val isModerator = user.role == Role.MODERATOR
         val canCreateEvents = user.role == Role.ADMIN || user.role == Role.MODERATOR
+        val canCreatePolls = user.role == Role.ADMIN || user.role == Role.MODERATOR || user.role == Role.USER
         val canManageUsers = isAdmin || isModerator
 
         tvHeaderTitle.text = getString(R.string.app_name)
@@ -682,9 +840,13 @@ class MainActivity : AppCompatActivity() {
         tvWelcome.text = user.fullName
         tvWelcomeDetails.text = getString(R.string.your_plot, user.plotName)
         bindBalanceHero(user.balance)
+        arrangePaymentCard(user)
         adminControls.visibility = View.GONE
         eventControls.visibility = if (canCreateEvents) View.VISIBLE else View.GONE
+        pollCreateControls.visibility = if (canCreatePolls) View.VISIBLE else View.GONE
         userPayControls.visibility = if (user.role == Role.USER || user.role == Role.MODERATOR) View.VISIBLE else View.GONE
+        selectedChargeEvents = emptyList()
+        updateSelectedChargeEventsUi()
         paymentConfigCard.visibility = if (canReviewPayments(user)) View.VISIBLE else View.GONE
         btnEditCommunityFunds.visibility = if (isAdmin) View.VISIBLE else View.GONE
         paymentRequestsHeader.visibility = if (canReviewPayments(user)) View.VISIBLE else View.GONE
@@ -707,6 +869,15 @@ class MainActivity : AppCompatActivity() {
         pendingRegistrationRequestsCount = 0
         updateResidentsTabBadge()
         updateEventsTabBadge(0)
+        switchChatNotifications.isChecked = eventStateStore.isChatNotificationsEnabled(user.id)
+        switchMentionNotifications.isChecked = eventStateStore.isMentionNotificationsEnabled(user.id)
+        renderPinnedMessage(null)
+        clearReplyTarget()
+        tabLayout.getTabAt(0)?.select()
+        lifecycleScope.launch {
+            runCatching { registerDeviceForPush() }
+        }
+        applyPendingNotificationDestination()
 
         userAdapter = UserListAdapter(
             currentUserIdProvider = { currentUser?.id },
@@ -723,12 +894,25 @@ class MainActivity : AppCompatActivity() {
         attachRealtimeListeners(user)
     }
 
+    private fun arrangePaymentCard(user: RemoteUser) {
+        eventsContent.removeView(userPayControls)
+        val targetIndex = when (user.role) {
+            Role.MODERATOR -> eventsContent.indexOfChild(communityFundsCard) + 1
+            else -> eventsContent.indexOfChild(eventControls) + 1
+        }.coerceAtLeast(0)
+        eventsContent.addView(userPayControls, targetIndex)
+    }
+
     private fun resetUiState() {
         latestMessages.clear()
         olderMessages.clear()
+        pinnedMessage = null
+        replyingToMessage = null
+        selectedMentionedUsers.clear()
+        hasInitializedChatNotifications = false
         hasMoreOlderMessages = true
         isLoadingOlderMessages = false
-        selectedChargeEvent = null
+        selectedChargeEvents = emptyList()
         availableChargeEvents = emptyList()
         latestEvents = emptyList()
         latestPolls = emptyList()
@@ -737,6 +921,7 @@ class MainActivity : AppCompatActivity() {
         chatAdapter.submitList(emptyList())
         eventAdapter.submitList(emptyList())
         pollAdapter.submitList(emptyList())
+        auditLogAdapter.submitList(emptyList())
         paymentRequestAdapter.submitList(emptyList())
         registrationRequestAdapter.submitList(emptyList())
         unreadEventsBanner.visibility = View.GONE
@@ -753,16 +938,27 @@ class MainActivity : AppCompatActivity() {
         if (::tvPollsEmpty.isInitialized) {
             tvPollsEmpty.visibility = View.GONE
         }
+        if (::tvLogsEmpty.isInitialized) {
+            tvLogsEmpty.visibility = View.GONE
+        }
+        if (::pinnedMessageCard.isInitialized) {
+            pinnedMessageCard.visibility = View.GONE
+        }
+        if (::chatReplyPreviewContainer.isInitialized) {
+            chatReplyPreviewContainer.visibility = View.GONE
+        }
     }
 
     private fun attachRealtimeListeners(user: RemoteUser) {
         usersListener?.remove()
         chatListener?.remove()
         eventsListener?.remove()
+        auditLogsListener?.remove()
         paymentRequestsListener?.remove()
         paymentConfigListener?.remove()
         registrationRequestsListener?.remove()
         communityFundsListener?.remove()
+        pinnedMessageListener?.remove()
 
         usersListener = repository.observeUsers(
             onChange = { users ->
@@ -824,6 +1020,23 @@ class MainActivity : AppCompatActivity() {
                 }
             },
             onError = { runOnUiThread { toast(getString(R.string.events_load_failed)) } }
+        )
+
+        auditLogsListener = repository.observeAuditLogs(
+            onChange = { logs ->
+                runOnUiThread {
+                    auditLogAdapter.submitList(logs)
+                    rvLogs.visibility = if (logs.isEmpty()) View.GONE else View.VISIBLE
+                    tvLogsEmpty.visibility = if (logs.isEmpty()) View.VISIBLE else View.GONE
+                }
+            },
+            onError = {
+                runOnUiThread {
+                    auditLogAdapter.submitList(emptyList())
+                    rvLogs.visibility = View.GONE
+                    tvLogsEmpty.visibility = View.VISIBLE
+                }
+            }
         )
 
         paymentRequestsListener = repository.observePaymentRequests(
@@ -901,12 +1114,25 @@ class MainActivity : AppCompatActivity() {
                     latestMessages.clear()
                     latestMessages.addAll(messages)
                     updateChatList(scrollToBottom = wasNearBottom || olderMessages.isEmpty())
+                    handleChatNotifications(user, messages)
                     if (chatContainer.visibility == View.VISIBLE) {
                         markChatRead()
                     }
                 }
             },
             onError = { runOnUiThread { toast(getString(R.string.chat_load_failed)) } }
+        )
+
+        pinnedMessageListener = repository.observePinnedMessage(
+            onChange = { message ->
+                runOnUiThread {
+                    pinnedMessage = message
+                    renderPinnedMessage(message)
+                }
+            },
+            onError = {
+                runOnUiThread { renderPinnedMessage(null) }
+            }
         )
     }
 
@@ -922,6 +1148,64 @@ class MainActivity : AppCompatActivity() {
                 rvChat.scrollToPosition(merged.lastIndex)
             }
         }
+    }
+
+    private fun renderPinnedMessage(message: ChatMessage?) {
+        if (message == null) {
+            pinnedMessageCard.visibility = View.GONE
+            return
+        }
+        pinnedMessageCard.visibility = View.VISIBLE
+        tvPinnedMessageTitle.text = buildString {
+            append(message.senderName)
+            if (message.senderPlotName.isNotBlank()) {
+                append(" • ")
+                append(message.senderPlotName)
+            }
+        }
+        tvPinnedMessageBody.text = message.text
+        pinnedMessageCard.setOnClickListener {
+            val index = chatAdapter.currentList.indexOfFirst { it.id == message.id }
+            if (index >= 0) {
+                tabLayout.getTabAt(1)?.select()
+                rvChat.scrollToPosition(index)
+            }
+        }
+    }
+
+    private fun handleChatNotifications(user: RemoteUser, messages: List<ChatMessage>) {
+        val latestTimestamp = messages.maxOfOrNull { it.createdAtClient } ?: return
+        if (!hasInitializedChatNotifications) {
+            hasInitializedChatNotifications = true
+            eventStateStore.setLastChatNotificationTimestamp(user.id, latestTimestamp)
+            return
+        }
+        if (pushBackendClient.isConfigured()) {
+            eventStateStore.setLastChatNotificationTimestamp(user.id, latestTimestamp)
+            return
+        }
+
+        val lastNotified = eventStateStore.getLastChatNotificationTimestamp(user.id)
+        val incomingMessages = messages.filter { it.senderId != user.id && it.createdAtClient > lastNotified }
+        if (incomingMessages.isEmpty()) return
+
+        val chatNotificationsEnabled = eventStateStore.isChatNotificationsEnabled(user.id)
+        val mentionNotificationsEnabled = eventStateStore.isMentionNotificationsEnabled(user.id)
+        val mentionMessage = incomingMessages.lastOrNull { it.mentionedUserIds.contains(user.id) }
+        val latestIncoming = incomingMessages.maxByOrNull { it.createdAtClient } ?: return
+
+        if (chatContainer.visibility != View.VISIBLE && (chatNotificationsEnabled || (mentionNotificationsEnabled && mentionMessage != null))) {
+            val notificationTarget = mentionMessage ?: latestIncoming
+            val titleRes = if (mentionMessage != null) R.string.chat_notification_mention_title else R.string.chat_notification_title
+            val bodyRes = if (mentionMessage != null) R.string.chat_notification_mention_body else R.string.chat_notification_body
+            com.example.malinkieco.notifications.EventNotificationHelper.showChatNotification(
+                this,
+                getString(titleRes),
+                getString(bodyRes, notificationTarget.senderName, notificationTarget.text)
+            )
+        }
+
+        eventStateStore.setLastChatNotificationTimestamp(user.id, latestIncoming.createdAtClient)
     }
 
     private fun loadOlderMessages() {
@@ -958,9 +1242,19 @@ class MainActivity : AppCompatActivity() {
         val fullName = etNewFullName.text.toString().trim()
         val email = etNewEmail.text.toString().trim()
         val password = etNewPassword.text.toString()
+        tilNewEmail.error = null
+        tilNewPassword.error = null
 
         if (plot.isBlank() || fullName.isBlank() || email.isBlank() || password.isBlank()) {
             toast(getString(R.string.user_form_empty))
+            return
+        }
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            tilNewEmail.error = getString(R.string.validation_email_invalid)
+            return
+        }
+        if (password.length < 6) {
+            tilNewPassword.error = getString(R.string.validation_password_short)
             return
         }
 
@@ -980,9 +1274,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun changeRole(user: RemoteUser, role: Role) {
+        val actor = currentUser ?: return
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { repository.setUserRole(user.id, role) }
+                withContext(Dispatchers.IO) { repository.setUserRole(user, role, actor) }
                 toast(if (role == Role.MODERATOR) getString(R.string.moderator_assigned) else getString(R.string.moderator_removed))
             } catch (_: Exception) {
                 toast(getString(R.string.role_change_failed))
@@ -997,15 +1292,9 @@ class MainActivity : AppCompatActivity() {
         val type = when {
             rbEventCharge.isChecked -> EventType.CHARGE
             rbEventExpense.isChecked -> EventType.EXPENSE
-            rbEventPoll.isChecked -> EventType.POLL
             else -> EventType.INFO
         }
         val amount = etEventAmount.text.toString().toIntOrNull() ?: 0
-        val pollOptions = etPollOptions.text.toString()
-            .lines()
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
 
         if (title.isBlank()) {
             toast(getString(R.string.event_title_required))
@@ -1015,20 +1304,72 @@ class MainActivity : AppCompatActivity() {
             toast(getString(R.string.event_amount_required))
             return
         }
-        if (type == EventType.POLL && pollOptions.size < 2) {
+
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    repository.createEvent(creator, title, message, type, amount, emptyList())
+                    runCatching {
+                        val pushTitle = when (type) {
+                            EventType.CHARGE -> getString(R.string.push_charge_created_title)
+                            EventType.EXPENSE -> getString(R.string.push_expense_created_title)
+                            else -> getString(R.string.push_event_created_title)
+                        }
+                        publishBroadcastPush(
+                            title = pushTitle,
+                            body = title,
+                            destination = "events",
+                            excludedUserIds = listOf(creator.id)
+                        )
+                    }
+                }
+                etEventTitle.text.clear()
+                etEventMessage.text.clear()
+                etEventAmount.text.clear()
+                rbEventInfo.isChecked = true
+                toast(getString(R.string.event_created))
+            } catch (error: Exception) {
+                toast(getString(R.string.event_create_failed, error.localizedMessage ?: getString(R.string.generic_error)))
+            }
+        }
+    }
+
+    private fun createPoll() {
+        val creator = currentUser ?: return
+        val title = etPollTitle.text.toString().trim()
+        val message = etPollMessage.text.toString().trim()
+        val pollOptions = etPollCreateOptions.text.toString()
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        if (title.isBlank()) {
+            toast(getString(R.string.event_title_required))
+            return
+        }
+        if (pollOptions.size < 2) {
             toast(getString(R.string.poll_options_required))
             return
         }
 
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { repository.createEvent(creator, title, message, type, amount, pollOptions) }
-                etEventTitle.text.clear()
-                etEventMessage.text.clear()
-                etEventAmount.text.clear()
-                etPollOptions.text.clear()
-                rbEventInfo.isChecked = true
-                toast(getString(R.string.event_created))
+                withContext(Dispatchers.IO) {
+                    repository.createEvent(creator, title, message, EventType.POLL, 0, pollOptions)
+                    runCatching {
+                        publishBroadcastPush(
+                            title = getString(R.string.push_poll_created_title),
+                            body = title,
+                            destination = "polls",
+                            excludedUserIds = listOf(creator.id)
+                        )
+                    }
+                }
+                etPollTitle.text.clear()
+                etPollMessage.text.clear()
+                etPollCreateOptions.text.clear()
+                toast(getString(R.string.poll_create_success))
             } catch (error: Exception) {
                 toast(getString(R.string.event_create_failed, error.localizedMessage ?: getString(R.string.generic_error)))
             }
@@ -1054,14 +1395,14 @@ class MainActivity : AppCompatActivity() {
                     repository.createPaymentRequest(
                         user = user,
                         amount = amount,
-                        event = selectedChargeEvent,
+                        events = selectedChargeEvents,
                         purpose = purpose
                     )
                 }
                 etPayAmount.text.clear()
                 etPayPurpose.text.clear()
-                selectedChargeEvent = null
-                btnSelectChargeEvent.text = getString(R.string.payment_select_event)
+                selectedChargeEvents = emptyList()
+                updateSelectedChargeEventsUi()
                 toast(getString(R.string.payment_request_created))
             } catch (_: Exception) {
                 toast(getString(R.string.payment_request_create_failed))
@@ -1146,7 +1487,17 @@ class MainActivity : AppCompatActivity() {
         val reviewer = currentUser ?: return
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { repository.confirmPaymentRequest(request.id, reviewer) }
+                withContext(Dispatchers.IO) {
+                    repository.confirmPaymentRequest(request.id, reviewer)
+                    runCatching {
+                        publishTargetedPush(
+                            userIds = listOf(request.userId),
+                            title = getString(R.string.push_payment_confirmed_title),
+                            body = getString(R.string.push_payment_confirmed_body, request.amount),
+                            destination = "events"
+                        )
+                    }
+                }
                 toast(getString(R.string.payment_request_confirmed_toast))
             } catch (error: Exception) {
                 toast("${getString(R.string.payment_request_confirm_failed)}: ${error.localizedMessage ?: getString(R.string.generic_error)}")
@@ -1172,7 +1523,20 @@ class MainActivity : AppCompatActivity() {
         val reviewer = currentUser ?: return
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { repository.rejectPaymentRequest(request.id, reviewer, reason) }
+                withContext(Dispatchers.IO) {
+                    repository.rejectPaymentRequest(request.id, reviewer, reason)
+                    runCatching {
+                        publishTargetedPush(
+                            userIds = listOf(request.userId),
+                            title = getString(R.string.push_payment_rejected_title),
+                            body = getString(
+                                R.string.push_payment_rejected_body,
+                                reason.ifBlank { getString(R.string.payment_request_reason_empty) }
+                            ),
+                            destination = "events"
+                        )
+                    }
+                }
                 toast(getString(R.string.payment_request_rejected_toast))
             } catch (error: Exception) {
                 toast("${getString(R.string.payment_request_reject_failed)}: ${error.localizedMessage ?: getString(R.string.generic_error)}")
@@ -1197,17 +1561,18 @@ class MainActivity : AppCompatActivity() {
                 if (newBalance == null) {
                     toast("Введите корректное значение баланса")
                 } else {
-                    updateUserBalance(user.id, newBalance)
+                    updateUserBalance(user, newBalance)
                 }
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()
     }
 
-    private fun updateUserBalance(userId: String, newBalance: Int) {
+    private fun updateUserBalance(user: RemoteUser, newBalance: Int) {
+        val actor = currentUser ?: return
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { repository.setUserBalance(userId, newBalance) }
+                withContext(Dispatchers.IO) { repository.setUserBalance(user, newBalance, actor) }
             } catch (error: Exception) {
                 toast(getString(R.string.balance_change_failed))
             }
@@ -1234,7 +1599,10 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     lifecycleScope.launch {
                         runCatching {
-                            withContext(Dispatchers.IO) { repository.setCommunityFunds(amount) }
+                            val previousAmount = tvCommunityFunds.text.toString()
+                                .filter { it.isDigit() || it == '-' }
+                                .toIntOrNull() ?: 0
+                            withContext(Dispatchers.IO) { repository.setCommunityFunds(amount, user, previousAmount) }
                         }.onFailure {
                             toast("Не удалось обновить общую сумму")
                         }
@@ -1262,7 +1630,17 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton(if (isPoll) "Закрыть опрос" else "Закрыть") { _, _ ->
                 lifecycleScope.launch {
                     runCatching {
-                        withContext(Dispatchers.IO) { repository.closeEvent(event.id, reviewer) }
+                        withContext(Dispatchers.IO) {
+                            repository.closeEvent(event.id, reviewer)
+                            runCatching {
+                                publishBroadcastPush(
+                                    title = if (isPoll) getString(R.string.push_poll_closed_title) else getString(R.string.push_charge_closed_title),
+                                    body = event.title,
+                                    destination = if (isPoll) "polls" else "events",
+                                    excludedUserIds = listOf(reviewer.id)
+                                )
+                            }
+                        }
                     }.onSuccess {
                         toast(if (isPoll) "Опрос закрыт" else "Сбор закрыт")
                     }.onFailure { error ->
@@ -1288,6 +1666,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun deleteUser(user: RemoteUser) {
+        val actor = currentUser ?: return
         if (user.id == currentUser?.id) {
             toast(getString(R.string.delete_self_forbidden))
             return
@@ -1295,7 +1674,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { repository.deleteUser(user.id) }
+                withContext(Dispatchers.IO) { repository.deleteUser(user, actor) }
                 toast(getString(R.string.user_deleted))
             } catch (_: Exception) {
                 toast(getString(R.string.user_delete_failed))
@@ -1313,8 +1692,33 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { repository.sendChatMessage(user, text) }
+                val mentionedUsers = selectedMentionedUsers.filter { text.contains("@${it.fullName}") }
+                withContext(Dispatchers.IO) {
+                    repository.sendChatMessage(
+                        sender = user,
+                        text = text,
+                        replyTo = replyingToMessage,
+                        mentionedUsers = mentionedUsers
+                    )
+                    publishBroadcastPush(
+                        title = getString(R.string.chat_push_new_message_title),
+                        body = getString(R.string.chat_notification_body, user.fullName, text),
+                        destination = "chat",
+                        excludedUserIds = buildList {
+                            add(user.id)
+                            addAll(mentionedUsers.map { it.id })
+                        }
+                    )
+                    publishTargetedPush(
+                        userIds = mentionedUsers.map { it.id },
+                        title = getString(R.string.chat_notification_mention_title),
+                        body = getString(R.string.chat_notification_mention_body, user.fullName, text),
+                        destination = "chat"
+                    )
+                }
                 etChatMessage.text.clear()
+                selectedMentionedUsers.clear()
+                clearReplyTarget()
             } catch (_: Exception) {
                 toast(getString(R.string.chat_send_failed))
             }
@@ -1325,8 +1729,12 @@ class MainActivity : AppCompatActivity() {
         usersListener?.remove()
         chatListener?.remove()
         eventsListener?.remove()
+        auditLogsListener?.remove()
         paymentRequestsListener?.remove()
         paymentConfigListener?.remove()
+        registrationRequestsListener?.remove()
+        communityFundsListener?.remove()
+        pinnedMessageListener?.remove()
         EventReminderScheduler.cancel(applicationContext)
         repository.logout()
         currentUser = null
@@ -1339,32 +1747,44 @@ class MainActivity : AppCompatActivity() {
 
     private fun showEventsTab() {
         eventsContainer.visibility = View.VISIBLE
-        pollsContainer.visibility = View.GONE
-        residentsContainer.visibility = View.GONE
         chatContainer.visibility = View.GONE
+        residentsContainer.visibility = View.GONE
+        pollsContainer.visibility = View.GONE
+        logsContainer.visibility = View.GONE
     }
 
     private fun showPollsTab() {
         eventsContainer.visibility = View.GONE
-        pollsContainer.visibility = View.VISIBLE
-        residentsContainer.visibility = View.GONE
         chatContainer.visibility = View.GONE
+        residentsContainer.visibility = View.GONE
+        pollsContainer.visibility = View.VISIBLE
+        logsContainer.visibility = View.GONE
         markPollsAsRead()
     }
 
     private fun showResidentsTab() {
         eventsContainer.visibility = View.GONE
-        pollsContainer.visibility = View.GONE
-        residentsContainer.visibility = View.VISIBLE
         chatContainer.visibility = View.GONE
+        residentsContainer.visibility = View.VISIBLE
+        pollsContainer.visibility = View.GONE
+        logsContainer.visibility = View.GONE
     }
 
     private fun showChatTab() {
         eventsContainer.visibility = View.GONE
-        pollsContainer.visibility = View.GONE
         residentsContainer.visibility = View.GONE
+        pollsContainer.visibility = View.GONE
+        logsContainer.visibility = View.GONE
         chatContainer.visibility = View.VISIBLE
         markChatRead()
+    }
+
+    private fun showLogsTab() {
+        eventsContainer.visibility = View.GONE
+        chatContainer.visibility = View.GONE
+        residentsContainer.visibility = View.GONE
+        pollsContainer.visibility = View.GONE
+        logsContainer.visibility = View.VISIBLE
     }
 
     private fun toggleAdminPanel(forceCollapse: Boolean = false) {
@@ -1501,7 +1921,49 @@ class MainActivity : AppCompatActivity() {
             rbEventPoll.isChecked -> EventType.POLL
             else -> EventType.INFO
         }
-        return EVENT_TEMPLATES.filter { it.type == type }
+        return when (type) {
+            EventType.CHARGE -> listOf(
+                EventTemplate(
+                    name = "Нужды КП",
+                    title = "Сбор средств на нужды КП",
+                    message = "Проводится сбор средств на нужды коттеджного поселка. Просьба внести оплату в установленный срок.",
+                    type = EventType.CHARGE
+                )
+            )
+            EventType.EXPENSE -> listOf(
+                EventTemplate(
+                    name = "За электричество",
+                    title = "Оплата за электричество",
+                    message = "Из общей суммы поселка проводится оплата за электричество. Средства списываются на покрытие текущих расходов по электроэнергии.",
+                    type = EventType.EXPENSE
+                ),
+                EventTemplate(
+                    name = "Вывоз мусора",
+                    title = "Оплата за вывоз мусора",
+                    message = "Из общей суммы поселка проводится оплата за вывоз мусора. Это обязательный расход для поддержания порядка на территории КП.",
+                    type = EventType.EXPENSE
+                ),
+                EventTemplate(
+                    name = "Покос травы",
+                    title = "Оплата за покос травы",
+                    message = "Из общей суммы поселка проводится оплата за покос травы и обслуживание общей территории.",
+                    type = EventType.EXPENSE
+                ),
+                EventTemplate(
+                    name = "Уборка снега",
+                    title = "Оплата за уборку снега",
+                    message = "Из общей суммы поселка проводится оплата за уборку снега и расчистку проездов внутри КП.",
+                    type = EventType.EXPENSE
+                ),
+                EventTemplate(
+                    name = "Налоги",
+                    title = "Оплата налогов",
+                    message = "Из общей суммы поселка проводится оплата налогов и обязательных начислений.",
+                    type = EventType.EXPENSE
+                )
+            )
+            else -> EVENT_TEMPLATES.filter { it.type == type }
+        }
     }
 
     private fun applyEventTemplate(template: EventTemplate) {
@@ -1521,40 +1983,57 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        val selectedIds = selectedChargeEvents.map { it.eventId }.toMutableSet()
         val labels = availableChargeEvents.map { event ->
-            getString(R.string.payment_select_event_item, event.title, event.amount)
+            getString(R.string.payment_select_event_item_multiline, event.title, event.amount, event.amount * currentPlotCount())
         }.toTypedArray()
+        val checkedItems = availableChargeEvents.map { selectedIds.contains(it.eventId) }.toBooleanArray()
 
         AlertDialog.Builder(this)
             .setTitle(R.string.payment_select_event_dialog_title)
-            .setItems(labels) { _, which ->
-                val selected = availableChargeEvents[which]
-                selectedChargeEvent = selected
-                etPayAmount.setText((selected.amount * currentPlotCount()).toString())
-                etPayPurpose.setText(selected.title)
-                btnSelectChargeEvent.text = getString(R.string.payment_selected_event, selected.title)
+            .setMultiChoiceItems(labels, checkedItems) { _, which, isChecked ->
+                val target = availableChargeEvents[which]
+                if (isChecked) {
+                    selectedIds.add(target.eventId)
+                } else {
+                    selectedIds.remove(target.eventId)
+                }
+            }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                selectedChargeEvents = availableChargeEvents.filter { selectedIds.contains(it.eventId) }
+                val totalAmount = selectedChargeEvents.sumOf { it.amount } * currentPlotCount()
+                if (selectedChargeEvents.isNotEmpty()) {
+                    etPayAmount.setText(totalAmount.toString())
+                    etPayPurpose.setText(selectedChargeEvents.joinToString(", ") { it.title })
+                }
+                updateSelectedChargeEventsUi()
             }
             .setNegativeButton(R.string.payment_select_event_reset) { _, _ ->
-                selectedChargeEvent = null
+                selectedChargeEvents = emptyList()
                 etPayPurpose.text.clear()
-                btnSelectChargeEvent.text = getString(R.string.payment_select_event)
+                updateSelectedChargeEventsUi()
             }
             .show()
     }
 
-    private fun promptEditMessage(message: ChatMessage) {
-        val input = EditText(this).apply {
-            setText(message.text)
-            setSelection(text?.length ?: 0)
-            hint = getString(R.string.chat_hint)
-            minLines = 2
+    private fun updateSelectedChargeEventsUi() {
+        btnSelectChargeEvent.text = when {
+            selectedChargeEvents.isEmpty() -> getString(R.string.payment_select_event)
+            selectedChargeEvents.size == 1 -> getString(R.string.payment_selected_event, selectedChargeEvents.first().title)
+            else -> getString(R.string.payment_selected_events_count, selectedChargeEvents.size)
         }
+    }
+
+    private fun promptEditMessage(message: ChatMessage) {
+        val contentView = layoutInflater.inflate(R.layout.dialog_chat_edit, null)
+        val input = contentView.findViewById<TextInputEditText>(R.id.etEditChatMessage)
+        input.setText(message.text)
+        input.setSelection(input.text?.length ?: 0)
 
         AlertDialog.Builder(this)
-            .setTitle(R.string.chat_edit_dialog_title)
-            .setView(input)
+            .setView(contentView)
             .setPositiveButton(R.string.chat_action_edit) { _, _ ->
-                saveEditedMessage(message, input.text.toString())
+                saveEditedMessage(message, input.text?.toString().orEmpty())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()
@@ -1578,9 +2057,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun confirmDeleteMessage(message: ChatMessage) {
+        val contentView = layoutInflater.inflate(R.layout.dialog_chat_delete, null)
+        contentView.findViewById<TextView>(R.id.tvDeleteChatMessagePreview).text =
+            getString(R.string.chat_delete_dialog_preview, message.text)
+
         AlertDialog.Builder(this)
-            .setTitle(R.string.chat_delete_dialog_title)
-            .setMessage(R.string.chat_delete_dialog_message)
+            .setView(contentView)
             .setPositiveButton(R.string.chat_action_delete) { _, _ ->
                 deleteMessage(message)
             }
@@ -1601,9 +2083,85 @@ class MainActivity : AppCompatActivity() {
 
     private fun markChatRead() {
         val user = currentUser ?: return
+        val latestTimestamp = chatAdapter.currentList.maxOfOrNull { it.createdAtClient } ?: 0L
+        if (latestTimestamp > 0L) {
+            eventStateStore.setLastSeenChatTimestamp(user.id, latestTimestamp)
+            eventStateStore.setLastChatNotificationTimestamp(
+                user.id,
+                maxOf(eventStateStore.getLastChatNotificationTimestamp(user.id), latestTimestamp)
+            )
+        }
         lifecycleScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) { repository.markChatRead(user.id) }
+            }
+        }
+    }
+
+    private fun startReplyToMessage(message: ChatMessage) {
+        replyingToMessage = message
+        tvReplyingToTitle.text = buildString {
+            append(getString(R.string.chat_reply_to_prefix, message.senderName))
+            if (message.senderPlotName.isNotBlank()) {
+                append(" • ")
+                append(message.senderPlotName)
+            }
+        }
+        tvReplyingToBody.text = message.text
+        chatReplyPreviewContainer.visibility = View.VISIBLE
+        tabLayout.getTabAt(1)?.select()
+        etChatMessage.requestFocus()
+    }
+
+    private fun clearReplyTarget() {
+        replyingToMessage = null
+        chatReplyPreviewContainer.visibility = View.GONE
+    }
+
+    private fun showMentionPicker() {
+        if (allUsers.isEmpty()) {
+            toast(getString(R.string.chat_mentions_empty))
+            return
+        }
+        val candidates = allUsers.filter { it.id != currentUser?.id }
+        val labels = candidates.map {
+            buildString {
+                append(it.fullName)
+                if (it.plotName.isNotBlank()) {
+                    append(" • ")
+                    append(it.plotName)
+                }
+            }
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.chat_mentions_picker_title)
+            .setItems(labels) { _, which ->
+                val selected = candidates.getOrNull(which) ?: return@setItems
+                selectedMentionedUsers.add(selected)
+                val mentionText = "@${selected.fullName} "
+                val currentText = etChatMessage.text?.toString().orEmpty()
+                etChatMessage.setText(currentText + mentionText)
+                etChatMessage.setSelection(etChatMessage.text?.length ?: 0)
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
+
+    private fun togglePinMessage(message: ChatMessage) {
+        val user = currentUser ?: return
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    repository.toggleChatMessagePin(message.id, user, !message.isPinned)
+                }
+                toast(
+                    getString(
+                        if (message.isPinned) R.string.chat_unpinned_success else R.string.chat_pinned_success
+                    )
+                )
+            } catch (_: Exception) {
+                toast(getString(R.string.chat_pin_failed))
             }
         }
     }
@@ -1695,6 +2253,7 @@ class MainActivity : AppCompatActivity() {
                         login = login.trim(),
                         password = password,
                         fullName = fullName.trim(),
+                        phone = "",
                         plots = plots
                     )
                 }
@@ -1703,6 +2262,102 @@ class MainActivity : AppCompatActivity() {
                 toast(getString(R.string.registration_request_send_failed, humanReadableRegistrationError(error)))
             }
         }
+    }
+
+    private fun showRegistrationFormDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_registration, null)
+        val emailLayout = dialogView.findViewById<TextInputLayout>(R.id.tilRegistrationEmail)
+        val displayNameLayout = dialogView.findViewById<TextInputLayout>(R.id.tilRegistrationDisplayName)
+        val phoneLayout = dialogView.findViewById<TextInputLayout>(R.id.tilRegistrationPhone)
+        val passwordLayout = dialogView.findViewById<TextInputLayout>(R.id.tilRegistrationPassword)
+        val emailInput = dialogView.findViewById<EditText>(R.id.etRegistrationEmail)
+        val displayNameInput = dialogView.findViewById<EditText>(R.id.etRegistrationDisplayName)
+        val phoneInput = dialogView.findViewById<EditText>(R.id.etRegistrationPhone)
+        val passwordInput = dialogView.findViewById<EditText>(R.id.etRegistrationPassword)
+        val plotsLabel = dialogView.findViewById<TextView>(R.id.tvRegistrationPlots)
+        val choosePlotsButton = dialogView.findViewById<Button>(R.id.btnRegistrationPlots)
+        val selectedPlots = mutableSetOf<String>()
+
+        choosePlotsButton.setOnClickListener {
+            openPlotsDialog(selectedPlots) { plots ->
+                plotsLabel.text = if (plots.isEmpty()) {
+                    getString(R.string.registration_plots_empty)
+                } else {
+                    getString(R.string.registration_plots_selected, plots.joinToString(", "))
+                }
+            }
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.open_registration_button)
+            .setView(dialogView)
+            .setPositiveButton(R.string.registration_submit, null)
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                emailLayout.error = null
+                displayNameLayout.error = null
+                phoneLayout.error = null
+                passwordLayout.error = null
+
+                val email = emailInput.text.toString().trim()
+                val displayName = displayNameInput.text.toString().trim()
+                val phone = phoneInput.text.toString().trim()
+                val password = passwordInput.text.toString()
+
+                var valid = true
+                if (email.isBlank()) {
+                    emailLayout.error = getString(R.string.validation_email_required)
+                    valid = false
+                } else if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+                    emailLayout.error = getString(R.string.validation_email_invalid)
+                    valid = false
+                }
+                if (displayName.length < 2) {
+                    displayNameLayout.error = getString(R.string.validation_display_name_invalid)
+                    valid = false
+                }
+                if (!isValidPhone(phone)) {
+                    phoneLayout.error = getString(R.string.validation_phone_invalid)
+                    valid = false
+                }
+                if (password.length < 6) {
+                    passwordLayout.error = getString(R.string.validation_password_short)
+                    valid = false
+                }
+                if (selectedPlots.isEmpty()) {
+                    toast(getString(R.string.validation_plots_required))
+                    valid = false
+                }
+                if (!valid) return@setOnClickListener
+
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            repository.submitRegistrationRequest(
+                                login = email,
+                                password = password,
+                                fullName = displayName,
+                                phone = phone,
+                                plots = selectedPlots.toList()
+                            )
+                        }
+                        dialog.dismiss()
+                        showRegistrationPendingDialog()
+                    } catch (error: Exception) {
+                        toast(getString(R.string.registration_request_send_failed, humanReadableRegistrationError(error)))
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun isValidPhone(phone: String): Boolean {
+        val digits = phone.filter { it.isDigit() }
+        return digits.length in 10..15
     }
 
     private fun humanReadableRegistrationError(error: Throwable): String {
@@ -1751,7 +2406,17 @@ class MainActivity : AppCompatActivity() {
         val reviewer = currentUser ?: return
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { repository.approveRegistrationRequest(request.id, reviewer) }
+                withContext(Dispatchers.IO) {
+                    repository.approveRegistrationRequest(request.id, reviewer)
+                    runCatching {
+                        publishTargetedPush(
+                            userIds = listOf(request.id),
+                            title = getString(R.string.push_registration_approved_title),
+                            body = getString(R.string.push_registration_approved_body),
+                            destination = "events"
+                        )
+                    }
+                }
                 toast(getString(R.string.registration_request_approved_toast))
             } catch (_: Exception) {
                 toast(getString(R.string.registration_request_approve_failed))
@@ -1777,7 +2442,20 @@ class MainActivity : AppCompatActivity() {
         val reviewer = currentUser ?: return
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { repository.rejectRegistrationRequest(request.id, reviewer, reason) }
+                withContext(Dispatchers.IO) {
+                    repository.rejectRegistrationRequest(request.id, reviewer, reason)
+                    runCatching {
+                        publishTargetedPush(
+                            userIds = listOf(request.id),
+                            title = getString(R.string.push_registration_rejected_title),
+                            body = getString(
+                                R.string.push_registration_rejected_body,
+                                reason.ifBlank { getString(R.string.registration_request_reason_empty) }
+                            ),
+                            destination = "events"
+                        )
+                    }
+                }
                 toast(getString(R.string.registration_request_rejected_toast))
             } catch (_: Exception) {
                 toast(getString(R.string.registration_request_reject_failed))
@@ -1793,6 +2471,56 @@ class MainActivity : AppCompatActivity() {
         return user?.role == Role.ADMIN || user?.role == Role.MODERATOR
     }
 
+    private fun captureNotificationDestination(sourceIntent: Intent?) {
+        pendingNotificationDestination = sourceIntent?.getStringExtra(EventNotificationHelper.EXTRA_DESTINATION)
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun applyPendingNotificationDestination() {
+        val destination = pendingNotificationDestination ?: return
+        if (dashboardContainer.visibility != View.VISIBLE) return
+        when (destination) {
+            "chat" -> tabLayout.getTabAt(1)?.select()
+            "polls" -> tabLayout.getTabAt(3)?.select()
+            else -> tabLayout.getTabAt(0)?.select()
+        }
+        pendingNotificationDestination = null
+    }
+
+    private suspend fun registerDeviceForPush() {
+        if (!pushBackendClient.isConfigured()) return
+        val idToken = currentFirebaseIdToken() ?: return
+        val fcmToken = FirebaseMessaging.getInstance().token.awaitResult()
+        pushBackendClient.registerDeviceToken(idToken, fcmToken)
+    }
+
+    private suspend fun currentFirebaseIdToken(): String? {
+        val firebaseUser = repository.currentAuthUser() ?: return null
+        return firebaseUser.getIdToken(false).awaitResult().token
+    }
+
+    private suspend fun publishBroadcastPush(
+        title: String,
+        body: String,
+        destination: String,
+        excludedUserIds: List<String> = emptyList()
+    ) {
+        if (!pushBackendClient.isConfigured()) return
+        val idToken = currentFirebaseIdToken() ?: return
+        pushBackendClient.publishBroadcast(idToken, title, body, destination, excludedUserIds)
+    }
+
+    private suspend fun publishTargetedPush(
+        userIds: List<String>,
+        title: String,
+        body: String,
+        destination: String
+    ) {
+        if (!pushBackendClient.isConfigured() || userIds.isEmpty()) return
+        val idToken = currentFirebaseIdToken() ?: return
+        pushBackendClient.publishToUsers(idToken, userIds, title, body, destination)
+    }
+
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
@@ -1804,6 +2532,12 @@ class MainActivity : AppCompatActivity() {
             notificationsPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
+
+    private suspend fun <T> com.google.android.gms.tasks.Task<T>.awaitResult(): T =
+        suspendCoroutine { continuation ->
+            addOnSuccessListener { continuation.resume(it) }
+            addOnFailureListener { continuation.resumeWithException(it) }
+        }
 
     companion object {
         private const val CHAT_PAGE_SIZE = 30

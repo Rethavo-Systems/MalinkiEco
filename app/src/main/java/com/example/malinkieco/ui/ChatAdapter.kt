@@ -20,6 +20,8 @@ import java.util.Locale
 class ChatAdapter(
     private val currentUserIdProvider: () -> String?,
     private val readerCutoffProvider: () -> Long,
+    private val onReplyMessage: (ChatMessage) -> Unit,
+    private val onTogglePinMessage: (ChatMessage) -> Unit,
     private val onEditMessage: (ChatMessage) -> Unit,
     private val onDeleteMessage: (ChatMessage) -> Unit
 ) : ListAdapter<ChatMessage, ChatAdapter.ChatViewHolder>(DiffCallback) {
@@ -36,12 +38,21 @@ class ChatAdapter(
     inner class ChatViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val card: MaterialCardView = itemView.findViewById(R.id.cardMessage)
         private val sender: TextView = itemView.findViewById(R.id.tvSenderName)
+        private val plot: TextView = itemView.findViewById(R.id.tvSenderPlot)
+        private val pinnedBadge: TextView = itemView.findViewById(R.id.tvPinnedBadge)
+        private val mentionBadge: TextView = itemView.findViewById(R.id.tvMentionBadge)
+        private val replyContainer: View = itemView.findViewById(R.id.replyPreviewContainer)
+        private val replySender: TextView = itemView.findViewById(R.id.tvReplySender)
+        private val replyText: TextView = itemView.findViewById(R.id.tvReplyText)
         private val message: TextView = itemView.findViewById(R.id.tvMessageText)
         private val time: TextView = itemView.findViewById(R.id.tvMessageTime)
         private val status: TextView = itemView.findViewById(R.id.tvMessageStatus)
 
         fun bind(item: ChatMessage) {
+            val currentUserId = currentUserIdProvider()
             sender.text = item.senderName
+            plot.text = item.senderPlotName
+            plot.visibility = if (item.senderPlotName.isBlank()) View.GONE else View.VISIBLE
             message.text = item.text
             val editedSuffix = if (item.updatedAtClient > item.createdAtClient) {
                 itemView.context.getString(R.string.chat_message_edited_suffix)
@@ -49,8 +60,23 @@ class ChatAdapter(
                 ""
             }
             time.text = TIME_FORMAT.format(Date(item.createdAtClient)) + editedSuffix
+            pinnedBadge.visibility = if (item.isPinned) View.VISIBLE else View.GONE
+            mentionBadge.visibility = if (currentUserId != null && item.mentionedUserIds.contains(currentUserId)) View.VISIBLE else View.GONE
+            if (item.replyToMessageId.isBlank()) {
+                replyContainer.visibility = View.GONE
+            } else {
+                replyContainer.visibility = View.VISIBLE
+                replySender.text = buildString {
+                    append(item.replyToSenderName)
+                    if (item.replyToSenderPlotName.isNotBlank()) {
+                        append(" • ")
+                        append(item.replyToSenderPlotName)
+                    }
+                }
+                replyText.text = item.replyToText
+            }
 
-            val isMine = item.senderId == currentUserIdProvider()
+            val isMine = item.senderId == currentUserId
             val lp = card.layoutParams as FrameLayout.LayoutParams
             if (isMine) {
                 lp.marginStart = itemView.resources.getDimensionPixelSize(R.dimen.chat_margin_large)
@@ -77,22 +103,40 @@ class ChatAdapter(
                     true
                 }
             } else {
-                card.setOnLongClickListener(null)
+                card.setOnLongClickListener {
+                    showMessageActions(item)
+                    true
+                }
             }
         }
 
         private fun showMessageActions(item: ChatMessage) {
-            androidx.appcompat.widget.PopupMenu(itemView.context, card).apply {
-                menu.add(0, 1, 0, R.string.chat_action_edit)
-                menu.add(0, 2, 1, R.string.chat_action_delete)
-                setOnMenuItemClickListener { menuItem ->
-                    when (menuItem.itemId) {
-                        1 -> onEditMessage(item)
-                        2 -> onDeleteMessage(item)
+            val isMine = item.senderId == currentUserIdProvider()
+            androidx.appcompat.app.AlertDialog.Builder(itemView.context)
+                .setTitle(itemView.context.getString(R.string.chat_actions_title))
+                .setItems(
+                    buildList {
+                        add(itemView.context.getString(R.string.chat_action_reply))
+                        add(
+                            itemView.context.getString(
+                                if (item.isPinned) R.string.chat_action_unpin else R.string.chat_action_pin
+                            )
+                        )
+                        if (isMine) {
+                            add(itemView.context.getString(R.string.chat_action_edit))
+                            add(itemView.context.getString(R.string.chat_action_delete))
+                        }
+                    }.toTypedArray()
+                ) { _, which ->
+                    when {
+                        which == 0 -> onReplyMessage(item)
+                        which == 1 -> onTogglePinMessage(item)
+                        isMine && which == 2 -> onEditMessage(item)
+                        isMine && which == 3 -> onDeleteMessage(item)
                     }
-                    true
                 }
-            }.show()
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .show()
         }
     }
 

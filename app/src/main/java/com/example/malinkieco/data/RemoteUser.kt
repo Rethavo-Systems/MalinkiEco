@@ -5,6 +5,7 @@ data class RemoteUser(
     val login: String = "",
     val email: String,
     val fullName: String,
+    val phone: String = "",
     val plotName: String,
     val plots: List<String> = emptyList(),
     val role: Role,

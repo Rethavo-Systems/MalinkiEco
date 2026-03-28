@@ -12,16 +12,17 @@ const {
   PUBLIC_BASE_URL,
   YOOKASSA_SHOP_ID,
   YOOKASSA_SECRET_KEY,
-  FIREBASE_SERVICE_ACCOUNT_PATH
+  FIREBASE_SERVICE_ACCOUNT_PATH,
+  FIREBASE_SERVICE_ACCOUNT_JSON
 } = process.env;
 
-if (!PUBLIC_BASE_URL || !YOOKASSA_SHOP_ID || !YOOKASSA_SECRET_KEY) {
-  throw new Error("Missing required environment variables for YooKassa backend");
-}
+const isYooKassaConfigured = Boolean(PUBLIC_BASE_URL && YOOKASSA_SHOP_ID && YOOKASSA_SECRET_KEY);
 
-const serviceAccount = FIREBASE_SERVICE_ACCOUNT_PATH
-  ? JSON.parse(fs.readFileSync(FIREBASE_SERVICE_ACCOUNT_PATH, "utf-8"))
-  : null;
+const serviceAccount = FIREBASE_SERVICE_ACCOUNT_JSON
+  ? JSON.parse(FIREBASE_SERVICE_ACCOUNT_JSON)
+  : FIREBASE_SERVICE_ACCOUNT_PATH
+    ? JSON.parse(fs.readFileSync(FIREBASE_SERVICE_ACCOUNT_PATH, "utf-8"))
+    : null;
 
 admin.initializeApp(
   serviceAccount
@@ -33,6 +34,7 @@ const firestore = admin.firestore();
 const users = firestore.collection("users");
 const payments = firestore.collection("payments");
 const paymentOrders = firestore.collection("payment_orders");
+const userDevices = firestore.collection("user_devices");
 
 const app = express();
 app.use(cors());
@@ -42,8 +44,96 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/api/notifications/register-device", authenticateFirebaseUser, async (req, res) => {
+  try {
+    const token = String(req.body?.token || "").trim();
+    if (!token) {
+      return res.status(400).json({ error: "FCM token is required" });
+    }
+
+    const tokenId = crypto.createHash("sha256").update(`${req.user.uid}:${token}`).digest("hex");
+    await userDevices.doc(tokenId).set(
+      {
+        userId: req.user.uid,
+        token,
+        platform: "android",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAtClient: Date.now()
+      },
+      { merge: true }
+    );
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Internal error" });
+  }
+});
+
+app.post("/api/notifications/publish", authenticateFirebaseUser, async (req, res) => {
+  try {
+    const title = String(req.body?.title || "").trim();
+    const body = String(req.body?.body || "").trim();
+    const audience = String(req.body?.audience || "").trim();
+    const destination = String(req.body?.destination || "events").trim() || "events";
+    const targetUserIds = Array.isArray(req.body?.targetUserIds)
+      ? req.body.targetUserIds.map(String).map((it) => it.trim()).filter(Boolean)
+      : [];
+    const excludedUserIds = Array.isArray(req.body?.excludedUserIds)
+      ? req.body.excludedUserIds.map(String).map((it) => it.trim()).filter(Boolean)
+      : [];
+
+    if (!title || !body) {
+      return res.status(400).json({ error: "Title and body are required" });
+    }
+    if (!["broadcast", "users"].includes(audience)) {
+      return res.status(400).json({ error: "Unsupported audience" });
+    }
+
+    const tokens = await collectTokens({
+      audience,
+      targetUserIds,
+      excludedUserIds
+    });
+
+    if (tokens.length === 0) {
+      return res.json({ ok: true, delivered: 0 });
+    }
+
+    const response = await admin.messaging().sendEachForMulticast({
+      tokens,
+      notification: {
+        title,
+        body
+      },
+      data: {
+        title,
+        body,
+        destination
+      },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "community_events"
+        }
+      }
+    });
+
+    await cleanupInvalidTokens(tokens, response.responses);
+    return res.json({
+      ok: true,
+      delivered: response.successCount,
+      failed: response.failureCount
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Internal error" });
+  }
+});
+
 app.post("/api/payments/create", authenticateFirebaseUser, async (req, res) => {
   try {
+    if (!isYooKassaConfigured) {
+      return res.status(503).json({ error: "YooKassa backend is not configured" });
+    }
     const amount = Number(req.body?.amount || 0);
     const userId = String(req.body?.userId || "");
     const userName = String(req.body?.userName || "").trim();
@@ -114,6 +204,9 @@ app.post("/api/payments/create", authenticateFirebaseUser, async (req, res) => {
 
 app.get("/api/payments/:orderId", authenticateFirebaseUser, async (req, res) => {
   try {
+    if (!isYooKassaConfigured) {
+      return res.status(503).json({ error: "YooKassa backend is not configured" });
+    }
     const orderSnapshot = await paymentOrders.doc(req.params.orderId).get();
     if (!orderSnapshot.exists) {
       return res.status(404).json({ error: "Payment order not found" });
@@ -137,6 +230,9 @@ app.get("/api/payments/:orderId", authenticateFirebaseUser, async (req, res) => 
 
 app.post("/api/yookassa/webhook", async (req, res) => {
   try {
+    if (!isYooKassaConfigured) {
+      return res.status(503).json({ error: "YooKassa backend is not configured" });
+    }
     const eventName = req.body?.event;
     const paymentObject = req.body?.object;
     const metadata = paymentObject?.metadata || {};
@@ -204,6 +300,9 @@ app.post("/api/yookassa/webhook", async (req, res) => {
 });
 
 app.get("/return", (req, res) => {
+  if (!isYooKassaConfigured) {
+    return res.status(503).send("YooKassa backend is not configured");
+  }
   const orderId = String(req.query.orderId || "");
   const deepLink = `malinkieco://payments/return?orderId=${encodeURIComponent(orderId)}`;
   res.type("html").send(`
@@ -248,4 +347,41 @@ async function authenticateFirebaseUser(req, res, next) {
   } catch (error) {
     return res.status(401).json({ error: error.message || "Unauthorized" });
   }
+}
+
+async function collectTokens({ audience, targetUserIds, excludedUserIds }) {
+  const snapshot = await userDevices.get();
+  const excludeSet = new Set(excludedUserIds);
+  const targetSet = new Set(targetUserIds);
+
+  return snapshot.docs
+    .map((doc) => doc.data())
+    .filter((device) => typeof device.token === "string" && device.token.trim())
+    .filter((device) => {
+      if (audience === "broadcast") {
+        return !excludeSet.has(device.userId);
+      }
+      return targetSet.has(device.userId);
+    })
+    .map((device) => device.token)
+    .filter(Boolean);
+}
+
+async function cleanupInvalidTokens(tokens, responses) {
+  const invalidCodes = new Set([
+    "messaging/invalid-registration-token",
+    "messaging/registration-token-not-registered"
+  ]);
+
+  const deletePromises = responses.map((response, index) => {
+    const code = response.error?.code;
+    if (!invalidCodes.has(code)) return null;
+    const token = tokens[index];
+    if (!token) return null;
+    return userDevices.where("token", "==", token).get().then((snapshot) =>
+      Promise.all(snapshot.docs.map((doc) => doc.ref.delete()))
+    );
+  }).filter(Boolean);
+
+  await Promise.all(deletePromises);
 }

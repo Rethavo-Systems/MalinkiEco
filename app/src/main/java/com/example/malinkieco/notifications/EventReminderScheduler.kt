@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
 
 object EventReminderScheduler {
     fun schedule(context: Context) {
-        val request = PeriodicWorkRequestBuilder<EventReminderWorker>(1, TimeUnit.HOURS)
+        val request = PeriodicWorkRequestBuilder<EventReminderWorker>(15, TimeUnit.MINUTES)
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED)

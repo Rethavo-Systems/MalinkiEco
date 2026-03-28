@@ -16,12 +16,16 @@ object EventNotificationHelper {
         context: Context,
         title: String,
         body: String,
-        notificationId: Int = System.currentTimeMillis().toInt()
+        notificationId: Int = System.currentTimeMillis().toInt(),
+        destination: String = ""
     ) {
         createNotificationChannel(context)
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (destination.isNotBlank()) {
+                putExtra(EXTRA_DESTINATION, destination)
+            }
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
@@ -43,6 +47,16 @@ object EventNotificationHelper {
         NotificationManagerCompat.from(context).notify(notificationId, notification)
     }
 
+    fun showChatNotification(
+        context: Context,
+        title: String,
+        body: String,
+        notificationId: Int = System.currentTimeMillis().toInt(),
+        destination: String = "chat"
+    ) {
+        showEventNotification(context, title, body, notificationId, destination)
+    }
+
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -58,4 +72,5 @@ object EventNotificationHelper {
     }
 
     const val CHANNEL_ID = "community_events"
+    const val EXTRA_DESTINATION = "notification_destination"
 }

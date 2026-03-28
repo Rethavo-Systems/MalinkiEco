@@ -5,6 +5,7 @@ data class RegistrationRequest(
     val login: String,
     val authEmail: String,
     val fullName: String,
+    val phone: String,
     val plots: List<String>,
     val status: RegistrationRequestStatus,
     val createdAtClient: Long,

@@ -36,6 +36,7 @@ class UserListAdapter(
     inner class UserViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val title: TextView = itemView.findViewById(R.id.tvUserTitle)
         private val email: TextView = itemView.findViewById(R.id.tvUserEmail)
+        private val phone: TextView = itemView.findViewById(R.id.tvUserPhone)
         private val role: TextView = itemView.findViewById(R.id.tvUserRole)
         private val balance: TextView = itemView.findViewById(R.id.tvUserBalance)
         private val status: TextView = itemView.findViewById(R.id.tvUserStatus)
@@ -49,6 +50,9 @@ class UserListAdapter(
         fun bind(user: RemoteUser) {
             title.text = "${user.plotName}  ${user.fullName}"
             email.text = user.email
+            email.visibility = if (canManageUsers) View.VISIBLE else View.GONE
+            phone.text = if (user.phone.isBlank()) "" else itemView.context.getString(R.string.user_phone_format, user.phone)
+            phone.visibility = if (canManageUsers && user.phone.isNotBlank()) View.VISIBLE else View.GONE
             role.text = roleLabel(user.role)
             balance.text = itemView.context.getString(R.string.balance_format, user.balance)
             status.text = balanceStatus(user.balance)

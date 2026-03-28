@@ -27,6 +27,14 @@
             android:textAppearance="@style/TextAppearance.Material3.BodyMedium" />
 
         <TextView
+            android:id="@+id/tvUserPhone"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/tvUserRole"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
