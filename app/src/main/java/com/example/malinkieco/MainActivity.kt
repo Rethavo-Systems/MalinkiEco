@@ -158,6 +158,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnPay: Button
     private lateinit var btnSelectChargeEvent: Button
     private lateinit var paymentConfigCard: View
+    private lateinit var paymentConfigPanel: View
+    private lateinit var btnTogglePaymentConfig: Button
     private lateinit var etRecipientName: EditText
     private lateinit var etRecipientPhone: EditText
     private lateinit var etRecipientBank: EditText
@@ -236,6 +238,7 @@ class MainActivity : AppCompatActivity() {
     private var isAdminPanelExpanded = false
     private var isEventControlsExpanded = false
     private var isPollCreateExpanded = false
+    private var isPaymentConfigExpanded = false
     private var isPaymentRequestsExpanded = false
     private var isRegistrationRequestsExpanded = false
     private var pendingPaymentRequestsCount = 0
@@ -287,7 +290,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val notificationsPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted && currentUser != null) {
+                lifecycleScope.launch {
+                    runCatching { registerDeviceForPush() }
+                }
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -421,6 +430,8 @@ class MainActivity : AppCompatActivity() {
         btnPay = findViewById(R.id.btnPay)
         btnSelectChargeEvent = findViewById(R.id.btnSelectChargeEvent)
         paymentConfigCard = findViewById(R.id.paymentConfigCard)
+        paymentConfigPanel = findViewById(R.id.paymentConfigPanel)
+        btnTogglePaymentConfig = findViewById(R.id.btnTogglePaymentConfig)
         etRecipientName = findViewById(R.id.etRecipientName)
         etRecipientPhone = findViewById(R.id.etRecipientPhone)
         etRecipientBank = findViewById(R.id.etRecipientBank)
@@ -492,7 +503,7 @@ class MainActivity : AppCompatActivity() {
 
         pollAdapter = PollAdapter(
             currentUserIdProvider = { currentUser?.id },
-            canModerateProvider = { currentUser?.role == Role.ADMIN || currentUser?.role == Role.MODERATOR },
+            canClosePollProvider = { event -> canClosePoll(event) },
             onVote = { event, option -> voteInPoll(event, option) },
             onClosePoll = { event -> promptCloseCharge(event) }
         )
@@ -554,11 +565,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupTabs() {
-        tabLayout.addTab(tabLayout.newTab().setText(R.string.events_tab))
-        tabLayout.addTab(tabLayout.newTab().setText(R.string.chat_tab))
-        tabLayout.addTab(tabLayout.newTab().setText(R.string.residents_tab))
-        tabLayout.addTab(tabLayout.newTab().setText(R.string.polls_tab))
-        tabLayout.addTab(tabLayout.newTab().setText(R.string.logs_tab))
+        configureTabs(includeLogs = false)
         showEventsTab()
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
@@ -567,13 +574,36 @@ class MainActivity : AppCompatActivity() {
                     1 -> showChatTab()
                     2 -> showResidentsTab()
                     3 -> showPollsTab()
-                    else -> showLogsTab()
+                    4 -> if (canSeeLogs()) showLogsTab() else showEventsTab()
+                    else -> showEventsTab()
                 }
             }
 
             override fun onTabUnselected(tab: TabLayout.Tab) = Unit
             override fun onTabReselected(tab: TabLayout.Tab) = Unit
         })
+    }
+
+    private fun configureTabs(includeLogs: Boolean) {
+        tabLayout.removeAllTabs()
+        tabLayout.addTab(tabLayout.newTab().setText(R.string.events_tab))
+        tabLayout.addTab(tabLayout.newTab().setText(R.string.chat_tab))
+        tabLayout.addTab(tabLayout.newTab().setText(R.string.residents_tab))
+        tabLayout.addTab(tabLayout.newTab().setText(R.string.polls_tab))
+        if (includeLogs) {
+            tabLayout.addTab(tabLayout.newTab().setText(R.string.logs_tab))
+        }
+    }
+
+    private fun canSeeLogs(): Boolean {
+        return currentUser?.role == Role.ADMIN || currentUser?.role == Role.MODERATOR
+    }
+
+    private fun canClosePoll(event: CommunityEvent): Boolean {
+        val user = currentUser ?: return false
+        return user.role == Role.ADMIN ||
+            user.role == Role.MODERATOR ||
+            event.createdById == user.id
     }
 
     private fun updateResidentsTabBadge() {
@@ -626,6 +656,7 @@ class MainActivity : AppCompatActivity() {
         btnCreatePoll.setOnClickListener { createPoll() }
         btnToggleEventControls.setOnClickListener { toggleEventControlsPanel() }
         btnTogglePollCreateControls.setOnClickListener { togglePollCreatePanel() }
+        btnTogglePaymentConfig.setOnClickListener { togglePaymentConfigPanel() }
         btnPay.setOnClickListener { createManualPaymentRequest() }
         btnSelectChargeEvent.setOnClickListener { chooseChargeEvent() }
         btnSendMessage.setOnClickListener { sendMessage() }
@@ -874,6 +905,7 @@ class MainActivity : AppCompatActivity() {
         val canCreateEvents = user.role == Role.ADMIN || user.role == Role.MODERATOR
         val canCreatePolls = user.role == Role.ADMIN || user.role == Role.MODERATOR || user.role == Role.USER
         val canManageUsers = isAdmin || isModerator
+        configureTabs(includeLogs = canManageUsers)
 
         tvHeaderTitle.text = getString(R.string.app_name)
         tvHeaderSubtitle.text = when (user.role) {
@@ -904,11 +936,14 @@ class MainActivity : AppCompatActivity() {
         isAdminPanelExpanded = false
         isEventControlsExpanded = false
         isPollCreateExpanded = false
+        isPaymentConfigExpanded = false
         isPaymentRequestsExpanded = false
         isRegistrationRequestsExpanded = false
         btnToggleAdminPanel.text = getString(R.string.admin_tools_open)
         btnToggleEventControls.text = getString(R.string.panel_expand)
         btnTogglePollCreateControls.text = getString(R.string.panel_expand)
+        btnTogglePaymentConfig.text = getString(R.string.panel_expand)
+        paymentConfigPanel.visibility = View.GONE
         btnTogglePaymentRequests.text = getString(R.string.panel_expand)
         btnToggleRegistrationRequests.text = getString(R.string.panel_expand)
         bindCommunityFunds(0)
@@ -1488,6 +1523,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) { repository.savePaymentConfig(config) }
+                togglePaymentConfigPanel(forceCollapse = true)
                 toast(getString(R.string.payment_config_saved))
             } catch (_: Exception) {
                 toast(getString(R.string.payment_config_save_failed))
@@ -1820,6 +1856,7 @@ class MainActivity : AppCompatActivity() {
         currentUser = null
         currentPaymentConfig = PaymentTransferConfig()
         resetUiState()
+        configureTabs(includeLogs = false)
         loginContainer.visibility = View.VISIBLE
         dashboardContainer.visibility = View.GONE
         btnOpenSettings.visibility = View.GONE
@@ -1884,6 +1921,12 @@ class MainActivity : AppCompatActivity() {
         isPollCreateExpanded = if (forceCollapse) false else !isPollCreateExpanded
         pollCreatePanel.visibility = if (isPollCreateExpanded) View.VISIBLE else View.GONE
         btnTogglePollCreateControls.text = if (isPollCreateExpanded) getString(R.string.panel_collapse) else getString(R.string.panel_expand)
+    }
+
+    private fun togglePaymentConfigPanel(forceCollapse: Boolean = false) {
+        isPaymentConfigExpanded = if (forceCollapse) false else !isPaymentConfigExpanded
+        paymentConfigPanel.visibility = if (isPaymentConfigExpanded) View.VISIBLE else View.GONE
+        btnTogglePaymentConfig.text = if (isPaymentConfigExpanded) getString(R.string.panel_collapse) else getString(R.string.panel_expand)
     }
 
     private fun togglePaymentRequestsPanel() {
@@ -2401,7 +2444,9 @@ class MainActivity : AppCompatActivity() {
         val switchPolls = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsPolls)
         val switchPayments = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsPayments)
         val switchRegistration = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsRegistration)
-        val userId = currentUser?.id
+        val user = currentUser
+        val userId = user?.id
+        val isStaff = user?.role == Role.ADMIN || user?.role == Role.MODERATOR
 
         when (eventStateStore.getThemeMode()) {
             EventStateStore.ThemeMode.SYSTEM -> rbThemeSystem.isChecked = true
@@ -2416,6 +2461,7 @@ class MainActivity : AppCompatActivity() {
             switchPolls.isChecked = eventStateStore.isPollNotificationsEnabled(userId)
             switchPayments.isChecked = eventStateStore.isPaymentNotificationsEnabled(userId)
             switchRegistration.isChecked = eventStateStore.isRegistrationNotificationsEnabled(userId)
+            switchRegistration.visibility = if (isStaff) View.VISIBLE else View.GONE
         } else {
             listOf(
                 switchChatMessages,
@@ -2425,6 +2471,7 @@ class MainActivity : AppCompatActivity() {
                 switchPayments,
                 switchRegistration
             ).forEach { it.isEnabled = false }
+            switchRegistration.visibility = View.GONE
         }
 
         AlertDialog.Builder(this)
@@ -2786,14 +2833,24 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun registerDeviceForPush() {
         if (!pushBackendClient.isConfigured()) return
-        val idToken = currentFirebaseIdToken() ?: return
-        val fcmToken = FirebaseMessaging.getInstance().token.awaitResult()
-        pushBackendClient.registerDeviceToken(idToken, fcmToken)
+        repeat(3) { attempt ->
+            val idToken = currentFirebaseIdToken() ?: return
+            val fcmToken = FirebaseMessaging.getInstance().token.awaitResult()
+            runCatching {
+                pushBackendClient.registerDeviceToken(idToken, fcmToken)
+            }.onSuccess {
+                return
+            }.onFailure {
+                if (attempt < 2) {
+                    kotlinx.coroutines.delay(1200)
+                }
+            }
+        }
     }
 
     private suspend fun currentFirebaseIdToken(): String? {
         val firebaseUser = repository.currentAuthUser() ?: return null
-        return firebaseUser.getIdToken(false).awaitResult().token
+        return firebaseUser.getIdToken(true).awaitResult().token
     }
 
     private suspend fun publishBroadcastPush(

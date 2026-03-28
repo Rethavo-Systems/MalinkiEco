@@ -102,10 +102,6 @@ app.post("/api/notifications/publish", authenticateFirebaseUser, async (req, res
 
     const response = await admin.messaging().sendEachForMulticast({
       tokens,
-      notification: {
-        title,
-        body
-      },
       data: {
         title,
         body,
@@ -113,10 +109,7 @@ app.post("/api/notifications/publish", authenticateFirebaseUser, async (req, res
         category
       },
       android: {
-        priority: "high",
-        notification: {
-          channelId: "community_events"
-        }
+        priority: "high"
       }
     });
 

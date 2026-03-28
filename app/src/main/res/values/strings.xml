@@ -10,7 +10,7 @@
     <string name="settings_button">Настройки</string>
     <string name="events_tab">Объявления</string>
     <string name="residents_tab">Собственники</string>
-    <string name="chat_tab">Общий чат</string>
+    <string name="chat_tab">Чат</string>
     <string name="logs_tab">Логи</string>
     <string name="residents_title">Список собственников</string>
     <string name="admin_tools">Управление пользователями</string>
@@ -126,7 +126,7 @@
     <string name="unread_events_notification_title">%1$d новых событий</string>
     <string name="unread_events_notification_body">Последнее: %1$s</string>
     <string name="payment_request_submit">Я оплатил</string>
-    <string name="payment_config_title">Реквизиты для перевода</string>
+    <string name="payment_config_title">Добавить реквизиты</string>
     <string name="payment_config_recipient_hint">Получатель</string>
     <string name="payment_config_phone_hint">Телефон для СБП</string>
     <string name="payment_config_bank_hint">Банк</string>
@@ -313,7 +313,7 @@
     <string name="chat_pinned_success">Сообщение закреплено</string>
     <string name="chat_unpinned_success">Сообщение откреплено</string>
     <string name="chat_pinned_banner_counter">Закреплено %1$d из %2$d</string>
-    <string name="chat_mentions_everyone">everyone</string>
+    <string name="chat_mentions_everyone">все</string>
     <string name="chat_pin_failed">Не удалось изменить закрепление</string>
     <string name="chat_delete_dialog_preview">Сообщение будет удалено из общего чата:\n\n%1$s</string>
     <string name="chat_notification_title">Новые сообщения в чате</string>

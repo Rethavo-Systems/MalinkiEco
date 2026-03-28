@@ -40,11 +40,14 @@ class MalinkiMessagingService : FirebaseMessagingService() {
         val client = PushBackendClient()
         if (!client.isConfigured()) return
 
-        Thread {
-            runCatching {
-                val idToken = user.getIdToken(false).result?.token ?: return@runCatching
-                client.registerDeviceToken(idToken, token)
+        user.getIdToken(true)
+            .addOnSuccessListener { result ->
+                val idToken = result.token ?: return@addOnSuccessListener
+                Thread {
+                    runCatching {
+                        client.registerDeviceToken(idToken, token)
+                    }
+                }.start()
             }
-        }.start()
     }
 }

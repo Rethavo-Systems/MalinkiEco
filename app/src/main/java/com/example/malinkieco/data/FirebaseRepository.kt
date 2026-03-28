@@ -817,6 +817,17 @@ class FirebaseRepository(
             val type = snapshot.getString("type")?.let(EventType::valueOf) ?: error("Event type is missing")
             val isClosed = snapshot.getBoolean("isClosed") ?: false
             if ((type != EventType.CHARGE && type != EventType.POLL) || isClosed) return@runTransaction null
+            val createdById = snapshot.getString("createdById").orEmpty()
+            val canClose = when (type) {
+                EventType.POLL -> {
+                    reviewer.role == Role.ADMIN ||
+                        reviewer.role == Role.MODERATOR ||
+                        createdById == reviewer.id
+                }
+                EventType.CHARGE -> reviewer.role == Role.ADMIN || reviewer.role == Role.MODERATOR
+                else -> false
+            }
+            require(canClose) { "Недостаточно прав для закрытия" }
             val title = snapshot.getString("title").orEmpty()
             transaction.update(
                 eventRef,

@@ -7,7 +7,7 @@
 
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/cardMessage"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         app:cardBackgroundColor="@color/chat_other"
         app:cardCornerRadius="24dp"
@@ -15,7 +15,7 @@
         app:strokeWidth="1dp">
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingStart="14dp"
@@ -24,15 +24,14 @@
             android:paddingBottom="12dp">
 
             <LinearLayout
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:orientation="vertical">
 
                     <TextView
@@ -84,7 +83,7 @@
 
             <LinearLayout
                 android:id="@+id/replyPreviewContainer"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:background="@drawable/bg_chat_reply_preview"
@@ -102,23 +101,25 @@
 
                 <TextView
                     android:id="@+id/tvReplyText"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:maxLines="2"
+                    android:maxWidth="260dp"
                     android:textAppearance="@style/TextAppearance.Material3.BodySmall"
                     android:textColor="@color/on_surface_variant_light" />
             </LinearLayout>
 
             <TextView
                 android:id="@+id/tvMessageText"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
+                android:maxWidth="260dp"
                 android:textAppearance="@style/TextAppearance.Material3.BodyLarge" />
 
             <LinearLayout
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:gravity="end|center_vertical"

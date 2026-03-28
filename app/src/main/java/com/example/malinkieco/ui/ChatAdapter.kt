@@ -85,6 +85,7 @@ class ChatAdapter(
 
             val isMine = item.senderId == currentUserId
             val lp = card.layoutParams as FrameLayout.LayoutParams
+            lp.width = ViewGroup.LayoutParams.WRAP_CONTENT
             if (isMine) {
                 lp.marginStart = itemView.resources.getDimensionPixelSize(R.dimen.chat_margin_large)
                 lp.marginEnd = 0

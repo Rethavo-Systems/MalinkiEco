@@ -20,7 +20,7 @@ import java.util.Locale
 
 class PollAdapter(
     private val currentUserIdProvider: () -> String?,
-    private val canModerateProvider: () -> Boolean,
+    private val canClosePollProvider: (CommunityEvent) -> Boolean,
     private val onVote: (CommunityEvent, String) -> Unit,
     private val onClosePoll: (CommunityEvent) -> Unit
 ) : ListAdapter<CommunityEvent, PollAdapter.PollViewHolder>(DiffCallback) {
@@ -125,7 +125,7 @@ class PollAdapter(
                 }
             }
 
-            btnClosePoll.visibility = if (!event.isClosed && canModerateProvider()) View.VISIBLE else View.GONE
+            btnClosePoll.visibility = if (!event.isClosed && canClosePollProvider(event)) View.VISIBLE else View.GONE
             btnClosePoll.setOnClickListener { onClosePoll(event) }
         }
     }
