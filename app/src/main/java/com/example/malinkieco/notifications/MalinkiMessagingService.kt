@@ -7,6 +7,9 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MalinkiMessagingService : FirebaseMessagingService() {
 
@@ -51,15 +54,17 @@ class MalinkiMessagingService : FirebaseMessagingService() {
         user.getIdToken(true)
             .addOnSuccessListener { result ->
                 val idToken = result.token ?: return@addOnSuccessListener
-                Thread {
+                CoroutineScope(Dispatchers.IO).launch {
                     runCatching {
                         repository.registerDeviceToken(user.uid, token)
                         if (client.isConfigured()) {
                             client.registerDeviceToken(idToken, token)
                         }
                         store.setPushRegistrationConfirmed(user.uid, true)
+                    }.onFailure {
+                        store.setPushRegistrationConfirmed(user.uid, false)
                     }
-                }.start()
+                }
             }
     }
 }
