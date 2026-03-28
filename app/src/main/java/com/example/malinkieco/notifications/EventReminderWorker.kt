@@ -16,9 +16,6 @@ class EventReminderWorker(
 
     override suspend fun doWork(): Result {
         return try {
-            if (BuildConfig.PAYMENTS_BACKEND_URL.isNotBlank()) {
-                return Result.success()
-            }
             val auth = FirebaseAuth.getInstance()
             val profile = auth.currentUser?.uid?.let {
                 FirebaseRepository(
@@ -33,6 +30,9 @@ class EventReminderWorker(
                 firestore = FirebaseFirestore.getInstance()
             )
             val store = EventStateStore(applicationContext)
+            if (BuildConfig.PAYMENTS_BACKEND_URL.isNotBlank() && store.isPushRegistrationConfirmed(profile.id)) {
+                return Result.success()
+            }
             val unreadEvents = store.unreadEvents(profile.id, repository.getRecentEventsForUser(profile, EVENT_CHECK_LIMIT))
             if (unreadEvents.isNotEmpty() && store.isEventNotificationsEnabled(profile.id)) {
                 val newestTimestamp = unreadEvents.maxOf { it.createdAtClient }

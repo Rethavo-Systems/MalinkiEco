@@ -27,6 +27,14 @@ class EventStateStore(context: Context) {
         preferences.edit().putLong(lastSeenPollKey(userId), timestamp).apply()
     }
 
+    fun getLastPollNotificationTimestamp(userId: String): Long {
+        return preferences.getLong(lastPollNotificationKey(userId), 0L)
+    }
+
+    fun setLastPollNotificationTimestamp(userId: String, timestamp: Long) {
+        preferences.edit().putLong(lastPollNotificationKey(userId), timestamp).apply()
+    }
+
     fun getLastBackgroundNotificationTimestamp(userId: String): Long {
         return preferences.getLong(lastBackgroundNotificationKey(userId), 0L)
     }
@@ -99,6 +107,14 @@ class EventStateStore(context: Context) {
         preferences.edit().putBoolean(registrationNotificationsEnabledKey(userId), enabled).apply()
     }
 
+    fun isPushRegistrationConfirmed(userId: String): Boolean {
+        return preferences.getBoolean(pushRegistrationConfirmedKey(userId), false)
+    }
+
+    fun setPushRegistrationConfirmed(userId: String, confirmed: Boolean) {
+        preferences.edit().putBoolean(pushRegistrationConfirmedKey(userId), confirmed).apply()
+    }
+
     fun getThemeMode(): ThemeMode {
         val raw = preferences.getString(themeModeKey(), ThemeMode.SYSTEM.name).orEmpty()
         return runCatching { ThemeMode.valueOf(raw) }.getOrDefault(ThemeMode.SYSTEM)
@@ -124,6 +140,7 @@ class EventStateStore(context: Context) {
         preferences.edit()
             .remove(lastSeenEventKey(userId))
             .remove(lastSeenPollKey(userId))
+            .remove(lastPollNotificationKey(userId))
             .remove(lastBackgroundNotificationKey(userId))
             .remove(lastSeenChatKey(userId))
             .remove(lastChatNotificationKey(userId))
@@ -133,6 +150,7 @@ class EventStateStore(context: Context) {
             .remove(pollNotificationsEnabledKey(userId))
             .remove(paymentNotificationsEnabledKey(userId))
             .remove(registrationNotificationsEnabledKey(userId))
+            .remove(pushRegistrationConfirmedKey(userId))
             .apply()
     }
 
@@ -155,6 +173,8 @@ class EventStateStore(context: Context) {
 
     private fun lastSeenPollKey(userId: String): String = "last_seen_polls_$userId"
 
+    private fun lastPollNotificationKey(userId: String): String = "last_poll_notification_$userId"
+
     private fun lastBackgroundNotificationKey(userId: String): String = "last_background_notification_$userId"
 
     private fun lastSeenChatKey(userId: String): String = "last_seen_chat_$userId"
@@ -172,6 +192,8 @@ class EventStateStore(context: Context) {
     private fun paymentNotificationsEnabledKey(userId: String): String = "payment_notifications_enabled_$userId"
 
     private fun registrationNotificationsEnabledKey(userId: String): String = "registration_notifications_enabled_$userId"
+
+    private fun pushRegistrationConfirmedKey(userId: String): String = "push_registration_confirmed_$userId"
 
     private fun themeModeKey(): String = "theme_mode"
 

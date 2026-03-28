@@ -1105,6 +1105,7 @@ class MainActivity : AppCompatActivity() {
                         val unreadPolls = eventStateStore.unreadPolls(userId, visiblePolls)
                         renderUnreadEventsBanner(unreadEvents)
                         updatePollsTabBadge(unreadPolls.size)
+                        handleLiveEventNotifications(user, unreadEvents, unreadPolls)
                     }
 
                     val newest = visibleItems.maxOfOrNull { it.createdAtClient } ?: 0L
@@ -1299,7 +1300,7 @@ class MainActivity : AppCompatActivity() {
             eventStateStore.setLastChatNotificationTimestamp(user.id, latestTimestamp)
             return
         }
-        if (pushBackendClient.isConfigured()) {
+        if (pushBackendClient.isConfigured() && eventStateStore.isPushRegistrationConfirmed(user.id)) {
             eventStateStore.setLastChatNotificationTimestamp(user.id, latestTimestamp)
             return
         }
@@ -1325,6 +1326,44 @@ class MainActivity : AppCompatActivity() {
         }
 
         eventStateStore.setLastChatNotificationTimestamp(user.id, latestIncoming.createdAtClient)
+    }
+
+    private fun handleLiveEventNotifications(
+        user: RemoteUser,
+        unreadEvents: List<CommunityEvent>,
+        unreadPolls: List<CommunityEvent>
+    ) {
+        if (pushBackendClient.isConfigured() && eventStateStore.isPushRegistrationConfirmed(user.id)) {
+            return
+        }
+
+        if (eventsContainer.visibility != View.VISIBLE && unreadEvents.isNotEmpty() && eventStateStore.isEventNotificationsEnabled(user.id)) {
+            val latestEvent = unreadEvents.maxByOrNull { it.createdAtClient } ?: return
+            val latestTimestamp = latestEvent.createdAtClient
+            if (latestTimestamp > eventStateStore.getLastBackgroundNotificationTimestamp(user.id)) {
+                EventNotificationHelper.showEventNotification(
+                    this,
+                    getString(R.string.push_event_created_title),
+                    latestEvent.title,
+                    destination = "events"
+                )
+                eventStateStore.setLastBackgroundNotificationTimestamp(user.id, latestTimestamp)
+            }
+        }
+
+        if (pollsContainer.visibility != View.VISIBLE && unreadPolls.isNotEmpty() && eventStateStore.isPollNotificationsEnabled(user.id)) {
+            val latestPoll = unreadPolls.maxByOrNull { it.createdAtClient } ?: return
+            val latestTimestamp = latestPoll.createdAtClient
+            if (latestTimestamp > eventStateStore.getLastPollNotificationTimestamp(user.id)) {
+                EventNotificationHelper.showEventNotification(
+                    this,
+                    getString(R.string.push_poll_created_title),
+                    latestPoll.title,
+                    destination = "polls"
+                )
+                eventStateStore.setLastPollNotificationTimestamp(user.id, latestTimestamp)
+            }
+        }
     }
 
     private fun loadOlderMessages() {
@@ -2856,14 +2895,17 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun registerDeviceForPush() {
         if (!pushBackendClient.isConfigured()) return
+        val userId = currentUser?.id ?: return
         repeat(3) { attempt ->
             val idToken = currentFirebaseIdToken() ?: return
             val fcmToken = FirebaseMessaging.getInstance().token.awaitResult()
             runCatching {
                 pushBackendClient.registerDeviceToken(idToken, fcmToken)
             }.onSuccess {
+                eventStateStore.setPushRegistrationConfirmed(userId, true)
                 return
             }.onFailure {
+                eventStateStore.setPushRegistrationConfirmed(userId, false)
                 if (attempt < 2) {
                     kotlinx.coroutines.delay(1200)
                 }

@@ -46,6 +46,7 @@ class MalinkiMessagingService : FirebaseMessagingService() {
                 Thread {
                     runCatching {
                         client.registerDeviceToken(idToken, token)
+                        EventStateStore(applicationContext).setPushRegistrationConfirmed(user.uid, true)
                     }
                 }.start()
             }

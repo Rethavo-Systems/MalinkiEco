@@ -63,8 +63,11 @@ app.post("/api/notifications/register-device", authenticateFirebaseUser, async (
       { merge: true }
     );
 
+    console.log(`[push] registered device for user=${req.user.uid} token=${token.slice(0, 16)}...`);
+
     return res.json({ ok: true });
   } catch (error) {
+    console.error("[push] register-device failed", error);
     return res.status(500).json({ error: error.message || "Internal error" });
   }
 });
@@ -96,7 +99,12 @@ app.post("/api/notifications/publish", authenticateFirebaseUser, async (req, res
       excludedUserIds
     });
 
+    console.log(
+      `[push] publish requested by=${req.user.uid} audience=${audience} category=${category} destination=${destination} tokens=${tokens.length}`
+    );
+
     if (tokens.length === 0) {
+      console.warn("[push] publish skipped because no device tokens were found");
       return res.json({ ok: true, delivered: 0 });
     }
 
@@ -114,12 +122,23 @@ app.post("/api/notifications/publish", authenticateFirebaseUser, async (req, res
     });
 
     await cleanupInvalidTokens(tokens, response.responses);
+    if (response.failureCount > 0) {
+      response.responses.forEach((item, index) => {
+        if (!item.success) {
+          console.error(
+            `[push] token failed index=${index} code=${item.error?.code || "unknown"} message=${item.error?.message || "unknown"}`
+          );
+        }
+      });
+    }
+    console.log(`[push] publish delivered=${response.successCount} failed=${response.failureCount}`);
     return res.json({
       ok: true,
       delivered: response.successCount,
       failed: response.failureCount
     });
   } catch (error) {
+    console.error("[push] publish failed", error);
     return res.status(500).json({ error: error.message || "Internal error" });
   }
 });
