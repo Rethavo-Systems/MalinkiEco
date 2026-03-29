@@ -169,21 +169,21 @@
                     android:text="@string/settings_notifications_payments_status" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/switchSettingsPaymentRequests"
+                    android:id="@+id/switchSettingsPaymentReqs"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="@string/settings_notifications_payment_requests" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/switchSettingsRegistration"
+                    android:id="@+id/switchSettingsRegistrationStatus"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="@string/settings_notifications_registration_status" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/switchSettingsRegistrationRequests"
+                    android:id="@+id/switchSettingsRegistrationReqs"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"

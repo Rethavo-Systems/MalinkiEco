@@ -2939,9 +2939,9 @@ class MainActivity : AppCompatActivity() {
         val switchEvents = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsEvents)
         val switchPolls = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsPolls)
         val switchPayments = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsPayments)
-        val switchPaymentRequests = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsPaymentRequests)
-        val switchRegistration = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsRegistration)
-        val switchRegistrationRequests = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsRegistrationRequests)
+        val switchPaymentRequests = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsPaymentReqs)
+        val switchRegistration = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsRegistrationStatus)
+        val switchRegistrationRequests = dialogView.findViewById<MaterialSwitch>(R.id.switchSettingsRegistrationReqs)
         val user = currentUser
         val userId = user?.id
         val isStaff = user?.role == Role.ADMIN || user?.role == Role.MODERATOR
