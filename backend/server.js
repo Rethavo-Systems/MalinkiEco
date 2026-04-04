@@ -401,6 +401,36 @@ app.post("/api/notifications/publish", authenticateFirebaseUser, async (req, res
       targetUserIds,
       excludedUserIds
     });
+    let emailed = 0;
+    let emailFailed = 0;
+
+    if (shouldSendEventEmail({ audience, destination, category })) {
+      const recipientEmails = await collectRecipientEmails({
+        audience,
+        targetUserIds,
+        excludedUserIds
+      });
+
+      const emailResults = await Promise.allSettled(
+        recipientEmails.map((email) =>
+          sendEmail({
+            to: email,
+            subject: title,
+            text: [
+              "Здравствуйте!",
+              "",
+              body,
+              "",
+              "Это уведомление отправлено из MalinkiEco."
+            ].join("\n")
+          })
+        )
+      );
+
+      emailed = emailResults.filter((item) => item.status === "fulfilled").length;
+      emailFailed = emailResults.length - emailed;
+      console.log(`[email] events mailed=${emailed} failed=${emailFailed}`);
+    }
 
     console.log(
       `[push] publish requested by=${req.user.uid} audience=${audience} category=${category} destination=${destination} tokens=${tokens.length}`
@@ -408,7 +438,7 @@ app.post("/api/notifications/publish", authenticateFirebaseUser, async (req, res
 
     if (tokens.length === 0) {
       console.warn("[push] publish skipped because no device tokens were found");
-      return res.json({ ok: true, delivered: 0 });
+      return res.json({ ok: true, delivered: 0, emailed, emailFailed });
     }
 
     const response = await admin.messaging().sendEachForMulticast({
@@ -438,7 +468,9 @@ app.post("/api/notifications/publish", authenticateFirebaseUser, async (req, res
     return res.json({
       ok: true,
       delivered: response.successCount,
-      failed: response.failureCount
+      failed: response.failureCount,
+      emailed,
+      emailFailed
     });
   } catch (error) {
     console.error("[push] publish failed", error);
@@ -683,6 +715,29 @@ async function collectTokens({ audience, targetUserIds, excludedUserIds }) {
     })
     .map((device) => device.token)
     .filter(Boolean);
+}
+
+async function collectRecipientEmails({ audience, targetUserIds, excludedUserIds }) {
+  const snapshot = await users.get();
+  const excludeSet = new Set(excludedUserIds);
+  const targetSet = new Set(targetUserIds);
+
+  return [...new Set(
+    snapshot.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((user) => {
+        if (audience === "broadcast") {
+          return !excludeSet.has(user.id);
+        }
+        return targetSet.has(user.id);
+      })
+      .map((user) => normalizeRegistrationEmail(user.email || user.authEmail || ""))
+      .filter(Boolean)
+  )];
+}
+
+function shouldSendEventEmail({ audience, destination, category }) {
+  return audience === "broadcast" && destination === "events" && category === "events";
 }
 
 async function cleanupInvalidTokens(tokens, responses) {
