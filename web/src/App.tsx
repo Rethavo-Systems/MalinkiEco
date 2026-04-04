@@ -535,6 +535,18 @@ function App() {
 
         {activeTab === 'logs' && isStaff && <LogsSection logs={auditLogs} formatDateTime={formatDateTime} />}
       </main>
+
+      <footer className="site-footer">
+        <div className="site-footer__inner">
+          <p>Разработано Rethavo Systems</p>
+          <div className="site-footer__links">
+            <a href="https://rethavo.ru" target="_blank" rel="noreferrer">
+              rethavo.ru
+            </a>
+            <a href="mailto:info@rethavo.ru">info@rethavo.ru</a>
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }
