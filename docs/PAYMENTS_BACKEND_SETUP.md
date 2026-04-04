@@ -1,11 +1,11 @@
-# YooKassa Setup
+# Payments Backend Setup
 
 ## Как устроен поток оплаты
 
 1. Android отправляет запрос на backend `POST /api/payments/create`.
-2. Backend создает платеж в YooKassa и возвращает `confirmationUrl`.
-3. Приложение открывает платежную форму YooKassa в браузере.
-4. После оплаты YooKassa шлет webhook на backend `POST /api/yookassa/webhook`.
+2. Backend создает платеж у провайдера и возвращает `confirmationUrl`.
+3. Приложение открывает платежную форму в браузере.
+4. После оплаты провайдер шлет webhook на backend `POST /api/payments/webhook`.
 5. Backend обновляет Firestore:
    - документ `payment_orders/{orderId}`
    - документ в коллекции `payments`
@@ -16,13 +16,13 @@
 
 ## Что нужно сделать вам
 
-1. Зарегистрировать магазин в YooKassa.
+1. Подключить платежного провайдера.
 2. Получить:
    - `shopId`
    - `secretKey`
 3. Поднять backend из папки `backend` на сервере с HTTPS.
-4. В YooKassa указать webhook URL:
-   - `https://your-domain.example/api/yookassa/webhook`
+4. Указать webhook URL у провайдера:
+   - `https://your-domain.example/api/payments/webhook`
 5. В Android задать адрес backend:
    - в `gradle.properties` или `~/.gradle/gradle.properties`
    - `PAYMENTS_BACKEND_URL=https://your-domain.example`
@@ -40,8 +40,9 @@ cp .env.example .env
 ```env
 PORT=8080
 PUBLIC_BASE_URL=https://your-domain.example
-YOOKASSA_SHOP_ID=ваш_shop_id
-YOOKASSA_SECRET_KEY=ваш_secret_key
+PAYMENT_PROVIDER_SHOP_ID=your_provider_shop_id
+PAYMENT_PROVIDER_SECRET_KEY=your_provider_secret_key
+PAYMENT_PROVIDER_PAYMENTS_URL=https://your-provider.example/payments
 FIREBASE_SERVICE_ACCOUNT_PATH=./service-account.json
 ```
 
@@ -59,17 +60,17 @@ npm start
   - `userId`
   - `amount`
   - `status`
-  - `yookassaPaymentId`
+  - `providerPaymentId`
   - `confirmationUrl`
 - `payments`
   - `userId`
   - `amount`
   - `note`
   - `orderId`
-  - `provider=YOOKASSA`
+  - `provider=ONLINE`
 
 ## Важно
 
-- Секретный ключ YooKassa хранится только на backend.
+- Секретный ключ провайдера хранится только на backend.
 - Баланс меняется только после webhook `payment.succeeded`.
 - Android не должен сам считать платеж успешным без подтверждения backend.

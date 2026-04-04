@@ -37,7 +37,7 @@
     <string name="add_user_button">Создать пользователя</string>
     <string name="payment_hint">Сумма оплаты</string>
     <string name="pay_button">Оплатить</string>
-    <string name="pay_button_yookassa">Оплатить в ЮKassa</string>
+    <string name="pay_button_online">Оплатить онлайн</string>
     <string name="chat_hint">Сообщение для всех собственников</string>
     <string name="send_button">Отправить</string>
     <string name="balance_hero_format">%1$d ₽</string>
@@ -119,7 +119,7 @@
     <string name="payment_amount_invalid">Введите корректную сумму</string>
     <string name="payment_saved">Оплата сохранена</string>
     <string name="payment_save_failed">Не удалось сохранить оплату</string>
-    <string name="payments_backend_not_configured">Оплата еще не подключена. Нужно указать адрес backend ЮKassa.</string>
+    <string name="payments_backend_not_configured">Оплата еще не подключена. Нужно указать адрес платежного backend.</string>
     <string name="payment_auth_failed">Не удалось подтвердить пользователя</string>
     <string name="payment_redirect_started">Открываю форму оплаты ЮKassa</string>
     <string name="payment_create_failed">Не удалось создать платеж: %1$s</string>
