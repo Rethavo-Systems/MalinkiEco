@@ -53,6 +53,15 @@ export function isValidRussianPhoneInput(raw: string): boolean {
   return raw.replace(/\D/g, '').length === 10
 }
 
+export function formatRussianPhone(raw: string): string {
+  const normalized = normalizeRussianPhone(raw)
+  if (normalized.length !== 11 || !normalized.startsWith('8')) {
+    return raw
+  }
+
+  return `8 (${normalized.slice(1, 4)}) ${normalized.slice(4, 7)}-${normalized.slice(7, 9)}-${normalized.slice(9, 11)}`
+}
+
 export function humanizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : 'Не удалось выполнить действие'
 
