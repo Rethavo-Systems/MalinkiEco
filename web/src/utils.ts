@@ -63,14 +63,58 @@ export function formatRussianPhone(raw: string): string {
 }
 
 export function humanizeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : 'Не удалось выполнить действие'
+  const message = error instanceof Error ? error.message : 'Не удалось выполнить действие.'
+  const normalizedMessage = message.toLowerCase()
 
-  if (message.includes('invalid-credential')) {
+  if (
+    normalizedMessage.includes('failed to fetch') ||
+    normalizedMessage.includes('network request failed') ||
+    normalizedMessage.includes('network-request-failed') ||
+    normalizedMessage.includes('load failed') ||
+    normalizedMessage.includes('networkerror')
+  ) {
+    return 'Не удалось связаться с Firebase. Проверьте интернет, блокировки Google/Firebase и настройки домена в Firebase Authentication.'
+  }
+
+  if (normalizedMessage.includes('unauthorized-domain')) {
+    return 'Домен веб-версии не разрешен в Firebase Authentication. Добавьте malinkieco.rethavo.ru в список Authorized domains.'
+  }
+
+  if (normalizedMessage.includes('invalid-credential')) {
     return 'Неверный логин или пароль. Если вы еще не регистрировались, сначала отправьте заявку на регистрацию.'
   }
-  if (message.includes('email-already-in-use')) return 'Такой логин уже зарегистрирован'
-  if (message.includes('user-not-found')) return 'Аккаунт не найден. Сначала отправьте заявку на регистрацию.'
-  if (message.includes('weak-password')) return 'Пароль слишком простой'
+
+  if (normalizedMessage.includes('email-already-in-use')) {
+    return 'Для этой почты уже создан аккаунт. Введите правильный пароль или используйте вход.'
+  }
+
+  if (normalizedMessage.includes('user-not-found')) {
+    return 'Аккаунт не найден. Сначала отправьте заявку на регистрацию.'
+  }
+
+  if (normalizedMessage.includes('weak-password')) {
+    return 'Пароль слишком простой.'
+  }
+
+  if (normalizedMessage.includes('too-many-requests')) {
+    return 'Слишком много попыток подряд. Подождите немного и попробуйте снова.'
+  }
+
+  if (normalizedMessage.includes('invalid-api-key')) {
+    return 'Ошибка настройки Firebase в веб-версии. Проверьте конфигурацию проекта.'
+  }
+
+  if (normalizedMessage.includes('operation-not-allowed')) {
+    return 'Регистрация по почте пока не включена в Firebase Authentication.'
+  }
+
+  if (normalizedMessage.includes('user-disabled')) {
+    return 'Этот аккаунт отключен. Обратитесь к администратору.'
+  }
+
+  if (normalizedMessage.includes('missing or insufficient permissions')) {
+    return 'Недостаточно прав для выполнения действия. Проверьте правила Firestore.'
+  }
 
   return message
 }
