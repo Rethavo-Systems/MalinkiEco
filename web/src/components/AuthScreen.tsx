@@ -108,7 +108,7 @@ export function AuthScreen({
                     <input
                       value={form.fullName}
                       onChange={(event) => onFieldChange('fullName', event.target.value)}
-                      placeholder="Например, Кирилл"
+                      placeholder="Иванов"
                       autoComplete="name"
                     />
                   </label>

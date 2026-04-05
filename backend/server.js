@@ -154,7 +154,7 @@ app.post("/api/email-verification/request", async (req, res) => {
     if (isResendConfigured) {
       await sendEmail({
         to: email,
-        subject: "Код подтверждения MalinkiEco",
+        subject: "MalinkiEco verification code",
         text: [
           "Здравствуйте!",
           "",
@@ -172,7 +172,7 @@ app.post("/api/email-verification/request", async (req, res) => {
     await emailTransport.sendMail({
       from: SMTP_FROM,
       to: email,
-      subject: "Код подтверждения MalinkiEco",
+      subject: "MalinkiEco verification code",
       text: [
         "Здравствуйте!",
         "",
