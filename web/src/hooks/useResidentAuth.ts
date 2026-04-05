@@ -23,11 +23,9 @@ const REGISTRATION_REQUIRED_MESSAGE =
 const EMAIL_CODE_REQUIRED_MESSAGE =
   'Сначала подтвердите почту кодом из письма и только потом отправляйте заявку.'
 const EMAIL_CODE_SENT_MESSAGE =
-  'Письмо с кодом подтверждения отправлено на указанную электронную почту.'
+  'Письмо с кодом подтверждения отправлено на указанную электронную почту. Введите его ниже и подтвердите адрес.'
 const EMAIL_CODE_VERIFIED_MESSAGE =
   'Код подтверждения принят. Теперь можно отправить заявку модераторам.'
-const EMAIL_CODE_PENDING_MESSAGE =
-  'Код отправлен на почту. Введите его ниже и подтвердите адрес.'
 
 export function useResidentAuth() {
   const [authMode, setAuthMode] = useState<AuthMode>('login')
@@ -59,7 +57,8 @@ export function useResidentAuth() {
         const next = { ...current, [field]: value }
         if (field === 'login' || field === 'password') {
           const normalizedValue = field === 'login' ? value.trim().toLowerCase() : value
-          const sentMatches = field === 'login' ? normalizedValue === verificationSentTo : value === current.password
+          const sentMatches =
+            field === 'login' ? normalizedValue === verificationSentTo : value === current.password
           if (!sentMatches) {
             next.verificationCode = field === 'login' ? '' : next.verificationCode
             setVerificationSentTo('')
@@ -102,7 +101,11 @@ export function useResidentAuth() {
       setAuthError('')
     } else if (requestStatus === 'REJECTED') {
       setAuthSuccess('')
-      setAuthError(reviewReason ? `Заявка отклонена. Причина: ${reviewReason}` : REJECTED_REGISTRATION_FALLBACK)
+      setAuthError(
+        reviewReason
+          ? `Заявка отклонена. Причина: ${reviewReason}`
+          : REJECTED_REGISTRATION_FALLBACK,
+      )
     } else if (requestStatus === 'VERIFYING' || requestStatus === 'VERIFIED') {
       setAuthSuccess('')
       setAuthError(EMAIL_CODE_REQUIRED_MESSAGE)
@@ -170,7 +173,7 @@ export function useResidentAuth() {
       setVerificationSentTo(registrationEmail)
       setVerificationApprovedFor('')
       setRegisterToken('')
-      setAuthSuccess(`${EMAIL_CODE_SENT_MESSAGE}\n\n${EMAIL_CODE_PENDING_MESSAGE}`)
+      setAuthSuccess(EMAIL_CODE_SENT_MESSAGE)
     } catch (error) {
       setAuthError(humanizeError(error))
     } finally {
@@ -206,7 +209,14 @@ export function useResidentAuth() {
     } finally {
       setVerificationChecking(false)
     }
-  }, [authForm.login, authForm.password, authForm.verificationCode, clearAuthMessages, registrationEmail, verificationSentTo])
+  }, [
+    authForm.login,
+    authForm.password,
+    authForm.verificationCode,
+    clearAuthMessages,
+    registrationEmail,
+    verificationSentTo,
+  ])
 
   const handleAuthSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -216,7 +226,9 @@ export function useResidentAuth() {
       clearAuthMessages()
 
       if (!authForm.login.trim()) {
-        setAuthError(authMode === 'register' ? 'Укажите электронную почту.' : 'Введите логин или почту.')
+        setAuthError(
+          authMode === 'register' ? 'Укажите электронную почту.' : 'Введите логин или почту.',
+        )
         return
       }
       if (!authForm.password.trim()) {
