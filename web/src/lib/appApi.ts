@@ -39,13 +39,14 @@ type NotificationJobPayload = {
   category: string
   excludedUserIds?: string[]
   targetUserIds?: string[]
+  emailTargets?: string[]
   sendEmail?: boolean
   sendPush?: boolean
 }
 
 async function enqueueNotificationJob(
   db: Firestore,
-  audience: 'broadcast' | 'users',
+  audience: 'broadcast' | 'users' | 'emails',
   payload: NotificationJobPayload,
 ) {
   const title = payload.title.trim()
@@ -54,12 +55,16 @@ async function enqueueNotificationJob(
   const category = payload.category.trim()
   const targetUserIds = (payload.targetUserIds ?? []).map((item) => item.trim()).filter(Boolean)
   const excludedUserIds = (payload.excludedUserIds ?? []).map((item) => item.trim()).filter(Boolean)
+  const emailTargets = (payload.emailTargets ?? []).map((item) => item.trim().toLowerCase()).filter(Boolean)
 
   if (!title || !body || !destination || !category) {
     throw new Error('Не удалось подготовить уведомление для отправки.')
   }
 
   if (audience === 'users' && targetUserIds.length === 0) {
+    return
+  }
+  if (audience === 'emails' && emailTargets.length === 0) {
     return
   }
 
@@ -73,6 +78,7 @@ async function enqueueNotificationJob(
     category,
     targetUserIds,
     excludedUserIds,
+    emailTargets,
     sendEmail: payload.sendEmail ?? false,
     sendPush: payload.sendPush ?? true,
     attempts: 0,
@@ -90,6 +96,10 @@ export async function enqueueBroadcastNotification(db: Firestore, payload: Notif
 
 export async function enqueueTargetedNotification(db: Firestore, payload: NotificationJobPayload) {
   await enqueueNotificationJob(db, 'users', payload)
+}
+
+export async function enqueueEmailNotification(db: Firestore, payload: NotificationJobPayload) {
+  await enqueueNotificationJob(db, 'emails', payload)
 }
 
 async function createAuditLog(

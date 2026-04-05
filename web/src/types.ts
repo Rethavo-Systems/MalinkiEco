@@ -3,7 +3,7 @@ export type EventType = 'INFO' | 'CHARGE' | 'EXPENSE' | 'POLL'
 export type TabKey = 'events' | 'chat' | 'owners' | 'polls' | 'payments' | 'logs'
 export type AuthMode = 'login' | 'register'
 export type ManualPaymentStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED'
-export type RegistrationRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export type RegistrationRequestStatus = 'VERIFYING' | 'VERIFIED' | 'PENDING' | 'APPROVED' | 'REJECTED'
 
 export type RemoteUser = {
   id: string
@@ -111,6 +111,7 @@ export type AuthFormState = {
   fullName: string
   phone: string
   plots: string
+  verificationCode: string
 }
 
 export type PollDraft = {

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
-import { SiteFooter } from './SiteFooter'
 import type { AuthFormState, AuthMode } from '../types'
+import { SiteFooter } from './SiteFooter'
 
 type AuthScreenProps = {
   mode: AuthMode
@@ -102,7 +102,7 @@ export function AuthScreen({
                       placeholder="Например, owner@example.com"
                       autoComplete="email"
                     />
-                    <small>На этот адрес будет отправлено письмо для подтверждения электронной почты.</small>
+                    <small>На этот адрес придет код подтверждения для регистрации.</small>
                   </label>
 
                   <label>
@@ -169,8 +169,8 @@ export function AuthScreen({
                   </div>
 
                   <p className="verification-box__text">
-                    Сначала отправьте письмо, затем подтвердите адрес по ссылке из письма и вернитесь сюда
-                    для проверки статуса.
+                    Сначала запросите письмо с кодом, затем введите 6 цифр ниже и подтвердите адрес.
+                    Пока код не подтвержден, отправить заявку модераторам нельзя.
                   </p>
 
                   <div className="verification-actions">
@@ -180,16 +180,29 @@ export function AuthScreen({
                       onClick={onRequestCode}
                       disabled={verificationSending}
                     >
-                      {verificationSending ? 'Отправляем письмо...' : 'Отправить письмо'}
+                      {verificationSending ? 'Отправляем письмо...' : 'Отправить код'}
                     </button>
                   </div>
 
                   {verificationSentTo && (
                     <>
                       <small className="verification-box__hint">
-                        Письмо отправлено на {verificationSentTo}. После подтверждения адреса нажмите кнопку
-                        ниже.
+                        Код отправлен на {verificationSentTo}. Если письма нет, проверьте спам и попробуйте
+                        отправить код еще раз.
                       </small>
+
+                      <label>
+                        Код подтверждения
+                        <input
+                          value={form.verificationCode}
+                          onChange={(event) =>
+                            onFieldChange('verificationCode', event.target.value.replace(/\D/g, '').slice(0, 6))
+                          }
+                          placeholder="6 цифр из письма"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                        />
+                      </label>
 
                       <div className="verification-actions">
                         <button
@@ -199,10 +212,10 @@ export function AuthScreen({
                           disabled={verificationChecking || emailVerified}
                         >
                           {verificationChecking
-                            ? 'Проверяем почту...'
+                            ? 'Проверяем код...'
                             : emailVerified
                               ? 'Почта подтверждена'
-                              : 'Проверить почту'}
+                              : 'Подтвердить код'}
                         </button>
                       </div>
                     </>

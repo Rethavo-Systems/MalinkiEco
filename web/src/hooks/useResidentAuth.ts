@@ -20,8 +20,14 @@ const REJECTED_REGISTRATION_FALLBACK =
   'Заявка на регистрацию была отклонена. Обратитесь к модератору или администратору.'
 const REGISTRATION_REQUIRED_MESSAGE =
   'Для входа сначала нужно отправить заявку на регистрацию.'
-const PROFILE_MISSING_MESSAGE =
-  'Профиль не найден. Если доступ был отозван, обратитесь к модератору или администратору.'
+const EMAIL_CODE_REQUIRED_MESSAGE =
+  'Сначала подтвердите почту кодом из письма и только потом отправляйте заявку.'
+const EMAIL_CODE_SENT_MESSAGE =
+  'Письмо с кодом подтверждения отправлено на указанную электронную почту.'
+const EMAIL_CODE_VERIFIED_MESSAGE =
+  'Код подтверждения принят. Теперь можно отправить заявку модераторам.'
+const EMAIL_CODE_PENDING_MESSAGE =
+  'Код отправлен на почту. Введите его ниже и подтвердите адрес.'
 
 export function useResidentAuth() {
   const [authMode, setAuthMode] = useState<AuthMode>('login')
@@ -44,16 +50,22 @@ export function useResidentAuth() {
     setVerificationSentTo('')
     setVerificationApprovedFor('')
     setRegisterToken('')
+    setAuthForm((current) => ({ ...current, verificationCode: '' }))
   }, [])
 
   const updateAuthField = useCallback(
     (field: keyof AuthFormState, value: string) => {
       setAuthForm((current) => {
         const next = { ...current, [field]: value }
-        if (field === 'login' && value.trim().toLowerCase() !== verificationSentTo) {
-          setVerificationSentTo('')
-          setVerificationApprovedFor('')
-          setRegisterToken('')
+        if (field === 'login' || field === 'password') {
+          const normalizedValue = field === 'login' ? value.trim().toLowerCase() : value
+          const sentMatches = field === 'login' ? normalizedValue === verificationSentTo : value === current.password
+          if (!sentMatches) {
+            next.verificationCode = field === 'login' ? '' : next.verificationCode
+            setVerificationSentTo('')
+            setVerificationApprovedFor('')
+            setRegisterToken('')
+          }
         }
         return next
       })
@@ -91,9 +103,9 @@ export function useResidentAuth() {
     } else if (requestStatus === 'REJECTED') {
       setAuthSuccess('')
       setAuthError(reviewReason ? `Заявка отклонена. Причина: ${reviewReason}` : REJECTED_REGISTRATION_FALLBACK)
-    } else if (auth.currentUser?.emailVerified) {
+    } else if (requestStatus === 'VERIFYING' || requestStatus === 'VERIFIED') {
       setAuthSuccess('')
-      setAuthError(PROFILE_MISSING_MESSAGE)
+      setAuthError(EMAIL_CODE_REQUIRED_MESSAGE)
     } else {
       setAuthSuccess('')
       setAuthError(REGISTRATION_REQUIRED_MESSAGE)
@@ -102,36 +114,47 @@ export function useResidentAuth() {
     await signOut(auth)
   }, [])
 
-  const validateRegistrationForm = useCallback(() => {
-    if (!authForm.login.trim()) {
+  const validateRegistrationFormBase = useCallback((form: AuthFormState) => {
+    if (!form.login.trim()) {
       return 'Укажите электронную почту.'
     }
-    if (!authForm.login.includes('@')) {
+    if (!form.login.includes('@')) {
       return 'Для регистрации в веб-версии укажите действующую электронную почту.'
     }
-    if (!authForm.fullName.trim()) {
+    if (!form.fullName.trim()) {
       return 'Введите отображаемое имя.'
     }
-    if (authForm.password.trim().length < 6) {
+    if (form.password.trim().length < 6) {
       return 'Пароль должен быть не короче 6 символов.'
     }
-    if (!authForm.phone.trim()) {
+    if (!form.phone.trim()) {
       return 'Введите номер телефона.'
     }
-    if (!isValidRussianPhoneInput(authForm.phone)) {
+    if (!isValidRussianPhoneInput(form.phone)) {
       return 'Номер телефона должен содержать 10 цифр после 8.'
     }
-    if (parsePlots(authForm.plots).length === 0) {
+    if (parsePlots(form.plots).length === 0) {
       return 'Укажите хотя бы один участок.'
     }
+    return ''
+  }, [])
+
+  const validateRegistrationForm = useCallback(() => {
+    const baseError = validateRegistrationFormBase(authForm)
+    if (baseError) {
+      return baseError
+    }
     if (!verificationSentTo || verificationSentTo !== registrationEmail) {
-      return 'Сначала отправьте письмо для подтверждения электронной почты.'
+      return 'Сначала отправьте письмо с кодом подтверждения.'
+    }
+    if (!authForm.verificationCode.trim()) {
+      return 'Введите код подтверждения из письма.'
     }
     if (!isRegistrationEmailVerified) {
-      return 'Сначала подтвердите электронную почту по ссылке из письма.'
+      return EMAIL_CODE_REQUIRED_MESSAGE
     }
     return ''
-  }, [authForm, isRegistrationEmailVerified, registrationEmail, verificationSentTo])
+  }, [authForm, isRegistrationEmailVerified, registrationEmail, validateRegistrationFormBase, verificationSentTo])
 
   const requestEmailCode = useCallback(async () => {
     clearAuthMessages()
@@ -147,34 +170,43 @@ export function useResidentAuth() {
       setVerificationSentTo(registrationEmail)
       setVerificationApprovedFor('')
       setRegisterToken('')
-      setAuthSuccess('Письмо для подтверждения отправлено на указанную электронную почту.')
+      setAuthSuccess(`${EMAIL_CODE_SENT_MESSAGE}\n\n${EMAIL_CODE_PENDING_MESSAGE}`)
     } catch (error) {
       setAuthError(humanizeError(error))
     } finally {
       setVerificationSending(false)
     }
-  }, [authForm, clearAuthMessages, registrationEmail])
+  }, [authForm, clearAuthMessages, registrationEmail, validateRegistrationFormBase])
 
   const verifyEmailCode = useCallback(async () => {
     clearAuthMessages()
 
     if (!verificationSentTo || verificationSentTo !== registrationEmail) {
-      setAuthError('Сначала отправьте письмо для подтверждения.')
+      setAuthError('Сначала отправьте письмо с кодом подтверждения.')
+      return
+    }
+
+    if (!authForm.verificationCode.trim()) {
+      setAuthError('Введите код подтверждения из письма.')
       return
     }
 
     setVerificationChecking(true)
     try {
-      const result = await verifyRegistrationEmailCode(authForm.login.trim(), authForm.password)
+      const result = await verifyRegistrationEmailCode(
+        authForm.login.trim(),
+        authForm.password,
+        authForm.verificationCode,
+      )
       setVerificationApprovedFor(registrationEmail)
       setRegisterToken(result.registerToken)
-      setAuthSuccess('Электронная почта подтверждена. Теперь можно отправить заявку.')
+      setAuthSuccess(EMAIL_CODE_VERIFIED_MESSAGE)
     } catch (error) {
       setAuthError(humanizeError(error))
     } finally {
       setVerificationChecking(false)
     }
-  }, [authForm.login, authForm.password, clearAuthMessages, registrationEmail, verificationSentTo])
+  }, [authForm.login, authForm.password, authForm.verificationCode, clearAuthMessages, registrationEmail, verificationSentTo])
 
   const handleAuthSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -260,29 +292,4 @@ export function useResidentAuth() {
     requestEmailCode,
     verifyEmailCode,
   }
-}
-
-function validateRegistrationFormBase(form: AuthFormState) {
-  if (!form.login.trim()) {
-    return 'Укажите электронную почту.'
-  }
-  if (!form.login.includes('@')) {
-    return 'Для регистрации в веб-версии укажите действующую электронную почту.'
-  }
-  if (!form.fullName.trim()) {
-    return 'Введите отображаемое имя.'
-  }
-  if (form.password.trim().length < 6) {
-    return 'Пароль должен быть не короче 6 символов.'
-  }
-  if (!form.phone.trim()) {
-    return 'Введите номер телефона.'
-  }
-  if (!isValidRussianPhoneInput(form.phone)) {
-    return 'Номер телефона должен содержать 10 цифр после 8.'
-  }
-  if (parsePlots(form.plots).length === 0) {
-    return 'Укажите хотя бы один участок.'
-  }
-  return ''
 }

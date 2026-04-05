@@ -19,6 +19,7 @@ export const INITIAL_AUTH_FORM: AuthFormState = {
   fullName: '',
   phone: '',
   plots: '',
+  verificationCode: '',
 }
 
 export const INITIAL_POLL_DRAFT: PollDraft = {

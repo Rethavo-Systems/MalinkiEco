@@ -165,7 +165,11 @@ export function useResidentData(profile: RemoteUser | null) {
               reviewReason: String(data.reviewReason ?? ''),
             }
           })
-          setRegistrationRequests(nextRequests)
+          setRegistrationRequests(
+            nextRequests.filter((request) =>
+              request.status === 'PENDING' || request.status === 'APPROVED' || request.status === 'REJECTED',
+            ),
+          )
         },
       )
 
