@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { SiteFooter } from './SiteFooter'
 import type { AuthFormState, AuthMode } from '../types'
 
@@ -35,6 +35,8 @@ export function AuthScreen({
   onVerifyCode,
   onSubmit,
 }: AuthScreenProps) {
+  const [showPassword, setShowPassword] = useState(false)
+
   return (
     <div className="shell">
       <div className="ambient ambient-left" />
@@ -139,13 +141,24 @@ export function AuthScreen({
 
               <label>
                 Пароль
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(event) => onFieldChange('password', event.target.value)}
-                  placeholder="Введите пароль"
-                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                />
+                <div className="password-field">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={form.password}
+                    onChange={(event) => onFieldChange('password', event.target.value)}
+                    placeholder="Введите пароль"
+                    autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  />
+                  <button
+                    className="password-toggle"
+                    type="button"
+                    onClick={() => setShowPassword((value) => !value)}
+                    aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+                    aria-pressed={showPassword}
+                  >
+                    {showPassword ? 'Скрыть' : 'Показать'}
+                  </button>
+                </div>
               </label>
 
               {mode === 'register' && (

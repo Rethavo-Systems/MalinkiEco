@@ -215,6 +215,30 @@
   padding: 14px 16px;
 }
 
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 112px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f6ff;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
 .login-form small {
   color: rgba(224, 234, 245, 0.72);
   font-weight: 500;
@@ -359,8 +383,35 @@
 }
 
 .tab-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   background: rgba(255, 255, 255, 0.08);
   color: #e7eefb;
+}
+
+.tab-badge,
+.alert-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #ff5a76;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 8px 18px rgba(255, 90, 118, 0.26);
+}
+
+.section-title-with-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .tab-button.is-active {

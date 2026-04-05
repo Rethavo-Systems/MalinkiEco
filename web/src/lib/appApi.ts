@@ -304,20 +304,30 @@ export async function setUserRole(
 }
 
 export async function deleteUserRecord(
-  db: Firestore,
-  actor: RemoteUser,
+  auth: Auth,
   targetUser: RemoteUser,
 ) {
-  await deleteDoc(doc(db, 'users', targetUser.id))
-  await createAuditLog(
-    db,
-    actor,
-    'Удален пользователь',
-    'Пользователь удален из списка собственников.',
-    targetUser.id,
-    targetUser.fullName,
-    formatPlots(targetUser),
-  )
+  const currentUser = auth.currentUser
+  if (!currentUser) throw new Error('Пользователь не авторизован')
+
+  const idToken = await getIdToken(currentUser, true)
+  const response = await fetch(backendUrl(`/api/admin/users/${encodeURIComponent(targetUser.id)}`), {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    let errorText = 'Не удалось удалить пользователя'
+    try {
+      const payload = await response.json()
+      if (payload?.error) errorText = String(payload.error)
+    } catch {
+      // ignore json parse error
+    }
+    throw new Error(errorText)
+  }
 }
 
 export async function markChatRead(db: Firestore, userId: string, latestSeen: number, currentLastReadAt: number) {

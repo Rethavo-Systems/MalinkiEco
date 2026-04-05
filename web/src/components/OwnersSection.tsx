@@ -16,6 +16,8 @@ type OwnersSectionProps = {
   balanceLabel: (balance: number) => string
   roleLabel: (role: Role) => string
   formatDateTime: (value: number) => string
+  pendingPaymentRequestsCount: number
+  pendingRegistrationRequestsCount: number
   onSetBalance: (user: RemoteUser, newBalance: number) => void | Promise<void>
   onDeleteUser: (user: RemoteUser) => void | Promise<void>
   onToggleModerator: (user: RemoteUser, nextRole: Role) => void | Promise<void>
@@ -61,6 +63,8 @@ export function OwnersSection({
   balanceLabel,
   roleLabel,
   formatDateTime,
+  pendingPaymentRequestsCount,
+  pendingRegistrationRequestsCount,
   onSetBalance,
   onDeleteUser,
   onToggleModerator,
@@ -87,7 +91,10 @@ export function OwnersSection({
           <div className="poll-create-card">
             <div className="poll-create-card__header">
               <div>
-                <h3>Заявки на оплату</h3>
+                <h3 className="section-title-with-badge">
+                  <span>Заявки на оплату</span>
+                  {pendingPaymentRequestsCount > 0 && <span className="alert-badge">{pendingPaymentRequestsCount}</span>}
+                </h3>
                 <p>Проверка переводов, которые отправили собственники.</p>
               </div>
               <button className="ghost-button" type="button" onClick={() => setShowPaymentRequests((value) => !value)}>
@@ -108,6 +115,7 @@ export function OwnersSection({
                       </div>
                       <h3>{request.userName}</h3>
                       <p>{request.plotName}</p>
+                      <p>ID: {request.userId}</p>
                       <p>{request.eventTitle || request.purpose || 'Без назначения'}</p>
                       <strong className="event-amount">{request.amount.toLocaleString('ru-RU')} ₽</strong>
                       {request.reviewReason && <p>Причина: {request.reviewReason}</p>}
@@ -138,7 +146,12 @@ export function OwnersSection({
           <div className="poll-create-card">
             <div className="poll-create-card__header">
               <div>
-                <h3>Заявки на регистрацию</h3>
+                <h3 className="section-title-with-badge">
+                  <span>Заявки на регистрацию</span>
+                  {pendingRegistrationRequestsCount > 0 && (
+                    <span className="alert-badge">{pendingRegistrationRequestsCount}</span>
+                  )}
+                </h3>
                 <p>Одобрение новых собственников и отклонение заявок.</p>
               </div>
               <button className="ghost-button" type="button" onClick={() => setShowRegistrationRequests((value) => !value)}>
@@ -159,6 +172,7 @@ export function OwnersSection({
                       </div>
                       <h3>{request.fullName}</h3>
                       <p>{request.login}</p>
+                      <p>{request.authEmail}</p>
                       <p>{request.plots.join(', ')}</p>
                       {request.phone && <p>{request.phone}</p>}
                       {request.reviewReason && <p>Причина: {request.reviewReason}</p>}
@@ -194,6 +208,8 @@ export function OwnersSection({
             <h3>{owner.fullName}</h3>
             <p>{formatPlots(owner)}</p>
             <span className="owner-role">{roleLabel(owner.role)}</span>
+            {isStaff && owner.phone && <p>{owner.phone}</p>}
+            {isStaff && owner.email && <p>{owner.email}</p>}
             <strong>{owner.balance.toLocaleString('ru-RU')} ₽</strong>
             <span>{balanceLabel(owner.balance)}</span>
             {isStaff && (

@@ -103,6 +103,10 @@ function App() {
   } = useResidentData(profile)
 
   const isStaff = profile?.role === 'ADMIN' || profile?.role === 'MODERATOR'
+  const pendingPaymentRequestsCount = paymentRequests.filter((request) => request.status === 'PENDING').length
+  const pendingRegistrationRequestsCount =
+    registrationRequests.filter((request) => request.status === 'PENDING').length
+  const pendingOwnersItemsCount = pendingPaymentRequestsCount + pendingRegistrationRequestsCount
 
   const visibleTabs = useMemo<TabKey[]>(
     () => (isStaff ? ['events', 'chat', 'owners', 'polls', 'payments', 'logs'] : ['events', 'chat', 'owners', 'polls', 'payments']),
@@ -326,11 +330,11 @@ function App() {
   }
 
   const deleteUser = async (user: RemoteUser) => {
-    if (!db || !profile) return
+    if (!auth || !db || !profile) return
     if (!window.confirm(`Удалить пользователя ${user.fullName}?`)) return
     if (!window.confirm('Пользователь потеряет доступ к приложению и веб-версии. Продолжить?')) return
     try {
-      await deleteUserRecord(db, profile, user)
+      await deleteUserRecord(auth, user)
       showNotice('Пользователь удален')
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось удалить пользователя')
@@ -442,7 +446,12 @@ function App() {
             className={`tab-button ${activeTab === tab ? 'is-active' : ''}`}
             onClick={() => setActiveTab(tab)}
           >
-            {TAB_LABELS[tab]}
+            <span>{TAB_LABELS[tab]}</span>
+            {tab === 'owners' && isStaff && pendingOwnersItemsCount > 0 && (
+              <span className="tab-badge" aria-label={`Новых заявок: ${pendingOwnersItemsCount}`}>
+                {pendingOwnersItemsCount}
+              </span>
+            )}
           </button>
         ))}
       </nav>
@@ -492,6 +501,8 @@ function App() {
             balanceLabel={balanceLabel}
             roleLabel={roleLabel}
             formatDateTime={formatDateTime}
+            pendingPaymentRequestsCount={pendingPaymentRequestsCount}
+            pendingRegistrationRequestsCount={pendingRegistrationRequestsCount}
             onSetBalance={setBalance}
             onDeleteUser={deleteUser}
             onToggleModerator={toggleModerator}

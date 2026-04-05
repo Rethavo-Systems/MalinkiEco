@@ -343,6 +343,84 @@ app.post("/api/email-verification/register", async (req, res) => {
   }
 });
 
+app.delete("/api/admin/users/:userId", authenticateFirebaseUser, async (req, res) => {
+  try {
+    const actorId = String(req.user?.uid || "").trim();
+    const targetUserId = String(req.params?.userId || "").trim();
+
+    if (!actorId || !targetUserId) {
+      return res.status(400).json({ error: "User id is required" });
+    }
+
+    if (actorId === targetUserId) {
+      return res.status(400).json({ error: "Нельзя удалить собственный аккаунт" });
+    }
+
+    const actorSnapshot = await users.doc(actorId).get();
+    if (!actorSnapshot.exists) {
+      return res.status(403).json({ error: "Профиль администратора или модератора не найден" });
+    }
+
+    const actorData = actorSnapshot.data() || {};
+    const actorRole = String(actorData.role || "USER");
+    const actorName = String(actorData.fullName || req.user.name || "Unknown");
+
+    if (!["ADMIN", "MODERATOR"].includes(actorRole)) {
+      return res.status(403).json({ error: "Недостаточно прав для удаления пользователя" });
+    }
+
+    const targetUserRef = users.doc(targetUserId);
+    const targetSnapshot = await targetUserRef.get();
+    if (!targetSnapshot.exists) {
+      return res.status(404).json({ error: "Пользователь не найден" });
+    }
+
+    const targetData = targetSnapshot.data() || {};
+    const targetRole = String(targetData.role || "USER");
+    const targetUserName = String(targetData.fullName || "");
+    const targetPlotName = String(targetData.plotName || "");
+
+    if (targetRole === "ADMIN") {
+      return res.status(403).json({ error: "Нельзя удалить администратора" });
+    }
+
+    const registrationRequestRef = firestore.collection("registration_requests").doc(targetUserId);
+    const userDevicesSnapshot = await userDevices.where("userId", "==", targetUserId).get();
+    const auditLogRef = firestore.collection("audit_logs").doc();
+    const batch = firestore.batch();
+
+    batch.delete(targetUserRef);
+    batch.delete(registrationRequestRef);
+    userDevicesSnapshot.docs.forEach((deviceDoc) => batch.delete(deviceDoc.ref));
+    batch.set(auditLogRef, {
+      actorId,
+      actorName,
+      actorRole,
+      title: "Удален пользователь",
+      message: "Пользователь удален из списка собственников.",
+      targetUserId,
+      targetUserName,
+      targetPlotName,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAtClient: Date.now()
+    });
+    await batch.commit();
+
+    try {
+      await admin.auth().deleteUser(targetUserId);
+    } catch (error) {
+      if (error.code !== "auth/user-not-found") {
+        throw error;
+      }
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("[admin] delete-user failed", error);
+    return res.status(500).json({ error: error.message || "Internal error" });
+  }
+});
+
 app.post("/api/notifications/register-device", authenticateFirebaseUser, async (req, res) => {
   try {
     const token = String(req.body?.token || "").trim();
