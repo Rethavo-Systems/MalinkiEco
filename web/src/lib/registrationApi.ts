@@ -6,10 +6,10 @@ import {
   signOut,
   type UserCredential,
 } from 'firebase/auth'
-import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { doc, getDoc, getFirestore, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 import type { AuthFormState } from '../types'
 import { enqueueEmailNotification } from './appApi'
-import { auth, db, firebaseConfig, firebaseSetup } from './firebase'
+import { auth, firebaseConfig, firebaseSetup } from './firebase'
 import { isValidRussianPhoneInput, normalizeAuthEmail, normalizeRussianPhone, parsePlots } from '../utils'
 
 const REGISTRATION_AUTH_APP_NAME = 'malinkieco-registration'
@@ -22,13 +22,14 @@ const registrationApp =
     : null
 
 const registrationAuth = registrationApp ? getAuth(registrationApp) : null
+const registrationDb = registrationApp ? getFirestore(registrationApp) : null
 
 function ensureFirebaseReady() {
-  if (!firebaseSetup.ready || !db || !registrationAuth || !auth) {
+  if (!firebaseSetup.ready || !registrationDb || !registrationAuth || !auth) {
     throw new Error('Firebase еще не готов. Обновите страницу и попробуйте снова.')
   }
 
-  return { db, registrationAuth }
+  return { db: registrationDb, registrationAuth }
 }
 
 function extractFirebaseErrorCode(error: unknown) {
