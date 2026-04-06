@@ -10,6 +10,7 @@ import {
   createPaymentRequest as createPaymentRequestRequest,
   deleteUserRecord,
   enqueueBroadcastNotification,
+  enqueueEmailNotification,
   enqueueTargetedNotification,
   markChatRead as markChatReadRequest,
   rejectPaymentRequest as rejectPaymentRequestAction,
@@ -62,6 +63,9 @@ import {
   roleLabel,
 } from './utils'
 import './App.css'
+
+const EVENT_EMAIL_FOOTER =
+  'Рекомендуем открыть MalinkiEco, чтобы ознакомиться с деталями события и актуальной информацией.'
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('events')
@@ -139,6 +143,124 @@ function App() {
     [events, profile?.id],
   )
 
+  const normalizeEmail = (value: string | undefined) => value?.trim().toLowerCase() ?? ''
+
+  const dedupeEmailTargets = (values: string[]) =>
+    Array.from(new Set(values.map((item) => normalizeEmail(item)).filter((item) => item.includes('@'))))
+
+  const collectBroadcastEmailTargets = (excludedUserIds: string[] = []) => {
+    const excluded = new Set(excludedUserIds)
+    return dedupeEmailTargets(
+      owners.filter((owner) => owner.id && !excluded.has(owner.id)).map((owner) => owner.email),
+    )
+  }
+
+  const collectTargetedEmailTargets = (targetUserIds: string[]) => {
+    const targets = new Set(targetUserIds)
+    return dedupeEmailTargets(
+      owners.filter((owner) => owner.id && targets.has(owner.id)).map((owner) => owner.email),
+    )
+  }
+
+  const buildEventEmailBody = ({
+    subject,
+    title,
+    message,
+    amount,
+    purpose,
+  }: {
+    subject: string
+    title: string
+    message: string
+    amount?: number
+    purpose?: string
+  }) => {
+    const lines = ['Здравствуйте!', '', `Тема: ${subject}`, `Заголовок: ${title}`]
+
+    if (typeof amount === 'number' && amount > 0) {
+      lines.push(`Сумма: ${amount} ₽`)
+    }
+
+    if (purpose) {
+      lines.push(`Назначение: ${purpose}`)
+    }
+
+    if (message.trim()) {
+      lines.push('', message.trim())
+    }
+
+    lines.push('', EVENT_EMAIL_FOOTER)
+    return lines.join('\n')
+  }
+
+  const enqueueBroadcastEventEmail = async ({
+    subject,
+    title,
+    message,
+    amount,
+    destination,
+    category,
+    excludedUserIds = [],
+  }: {
+    subject: string
+    title: string
+    message: string
+    amount?: number
+    destination: string
+    category: string
+    excludedUserIds?: string[]
+  }) => {
+    if (!db) return
+
+    const emailTargets = collectBroadcastEmailTargets(excludedUserIds)
+    if (emailTargets.length === 0) return
+
+    await enqueueEmailNotification(db, {
+      title: subject,
+      body: buildEventEmailBody({ subject, title, message, amount }),
+      destination,
+      category,
+      emailTargets,
+      sendEmail: true,
+      sendPush: false,
+    })
+  }
+
+  const enqueueTargetedEventEmail = async ({
+    subject,
+    title,
+    message,
+    amount,
+    purpose,
+    destination,
+    category,
+    targetUserIds,
+  }: {
+    subject: string
+    title: string
+    message: string
+    amount?: number
+    purpose?: string
+    destination: string
+    category: string
+    targetUserIds: string[]
+  }) => {
+    if (!db) return
+
+    const emailTargets = collectTargetedEmailTargets(targetUserIds)
+    if (emailTargets.length === 0) return
+
+    await enqueueEmailNotification(db, {
+      title: subject,
+      body: buildEventEmailBody({ subject, title, message, amount, purpose }),
+      destination,
+      category,
+      emailTargets,
+      sendEmail: true,
+      sendPush: false,
+    })
+  }
+
   const updatePollField = (field: keyof PollDraft, value: string) => {
     setPollDraft((current) => ({ ...current, [field]: value }))
   }
@@ -192,123 +314,9 @@ function App() {
     await removeChatMessageRequest(db, message.id)
   }
 
-  const createEvent = async (payload: { title: string; message: string; type: EventType; amount: number }) => {
-    if (!db || !profile) return
-
-    try {
-      await createEventRequest(db, profile, payload)
-      try {
-        await enqueueBroadcastNotification(db, {
-          title:
-            payload.type === 'CHARGE'
-              ? 'Новый сбор средств'
-              : payload.type === 'EXPENSE'
-                ? 'Новая оплата из общей суммы'
-                : 'Новое объявление',
-          body: payload.title,
-          destination: 'events',
-          category: 'events',
-          excludedUserIds: [profile.id],
-          sendEmail: true,
-        })
-      } catch {
-        showNotice(
-          payload.type === 'CHARGE'
-            ? 'Сбор создан, но уведомление пока не поставлено в очередь.'
-            : payload.type === 'EXPENSE'
-              ? 'Оплата из кассы создана, но уведомление пока не поставлено в очередь.'
-              : 'Объявление создано, но уведомление пока не поставлено в очередь.',
-        )
-        return
-      }
-      showNotice(
-        payload.type === 'CHARGE'
-          ? 'Сбор создан'
-          : payload.type === 'EXPENSE'
-            ? 'Оплата из кассы создана'
-            : 'Объявление создано',
-      )
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Не удалось создать событие')
-      throw error
-    }
-  }
-
-  const submitPoll = async () => {
-    if (!db || !profile || pollSubmitting) return
-
-    setPollSubmitting(true)
-    try {
-      setPollDraft(await submitPollRequest(db, profile, pollDraft))
-      try {
-        await enqueueBroadcastNotification(db, {
-          title: 'Новый опрос',
-          body: pollDraft.title.trim(),
-          destination: 'polls',
-          category: 'polls',
-          excludedUserIds: [profile.id],
-        })
-      } catch {
-        showNotice('Опрос создан, но уведомление пока не поставлено в очередь.')
-        return
-      }
-      showNotice('Опрос создан')
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Не удалось создать опрос')
-    } finally {
-      setPollSubmitting(false)
-    }
-  }
-
   const voteInPoll = async (poll: CommunityEvent, option: string) => {
     if (!db || !profile || poll.voterIds.includes(profile.id) || poll.isClosed) return
     await voteInPollRequest(db, profile, poll, option)
-  }
-
-  const closePoll = async (poll: CommunityEvent) => {
-    if (!db || !profile || poll.isClosed) return
-
-    try {
-      await closePollRequest(db, profile, poll)
-      try {
-        await enqueueBroadcastNotification(db, {
-          title: 'Опрос закрыт',
-          body: poll.title,
-          destination: 'polls',
-          category: 'polls',
-          excludedUserIds: [profile.id],
-        })
-      } catch {
-        showNotice('Опрос закрыт, но уведомление пока не поставлено в очередь.')
-        return
-      }
-      showNotice('Опрос закрыт')
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Не удалось закрыть опрос')
-    }
-  }
-
-  const closeCharge = async (event: CommunityEvent) => {
-    if (!db || !profile || event.isClosed) return
-
-    try {
-      await closeChargeRequest(db, profile, event)
-      try {
-        await enqueueBroadcastNotification(db, {
-          title: 'Сбор закрыт',
-          body: event.title,
-          destination: 'events',
-          category: 'events',
-          excludedUserIds: [profile.id],
-        })
-      } catch {
-        showNotice('Сбор закрыт, но уведомление пока не поставлено в очередь.')
-        return
-      }
-      showNotice('Сбор закрыт')
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Не удалось закрыть сбор')
-    }
   }
 
   const openPaymentLink = () => {
@@ -467,46 +475,364 @@ function App() {
     }
   }
 
-  const confirmPayment = async (request: ManualPaymentRequest) => {
+  const handleCreateEvent = async (payload: { title: string; message: string; type: EventType; amount: number }) => {
     if (!db || !profile) return
+
+    try {
+      await createEventRequest(db, profile, payload)
+
+      let pushQueued = true
+      let emailQueued = true
+
+      const notificationTitle =
+        payload.type === 'CHARGE'
+          ? 'Сбор средств'
+          : payload.type === 'EXPENSE'
+            ? 'Оплата'
+            : 'Уведомление'
+
+      const notificationMessage =
+        payload.message.trim() ||
+        (payload.type === 'CHARGE'
+          ? 'Открыт новый сбор средств.'
+          : payload.type === 'EXPENSE'
+            ? 'Опубликована новая оплата из общей кассы.'
+            : 'Опубликовано новое уведомление.')
+
+      try {
+        await enqueueBroadcastNotification(db, {
+          title: notificationTitle,
+          body: payload.title.trim(),
+          destination: 'events',
+          category: 'events',
+          excludedUserIds: [profile.id],
+        })
+      } catch {
+        pushQueued = false
+      }
+
+      try {
+        await enqueueBroadcastEventEmail({
+          subject: notificationTitle,
+          title: payload.title.trim(),
+          message: notificationMessage,
+          amount: payload.type === 'INFO' ? undefined : payload.amount,
+          destination: 'events',
+          category: 'events',
+          excludedUserIds: [profile.id],
+        })
+      } catch {
+        emailQueued = false
+      }
+
+      if (!pushQueued && !emailQueued) {
+        showNotice('Событие создано, но push и письмо пока не поставлены в очередь.')
+        return
+      }
+      if (!pushQueued) {
+        showNotice('Событие создано, но push-уведомление пока не поставлено в очередь.')
+        return
+      }
+      if (!emailQueued) {
+        showNotice('Событие создано, но письмо пока не поставлено в очередь.')
+        return
+      }
+
+      showNotice(
+        payload.type === 'CHARGE'
+          ? 'Сбор создан'
+          : payload.type === 'EXPENSE'
+            ? 'Оплата из кассы создана'
+            : 'Уведомление опубликовано',
+      )
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Не удалось создать событие')
+      throw error
+    }
+  }
+
+  const handleSubmitPoll = async () => {
+    if (!db || !profile || pollSubmitting) return
+
+    setPollSubmitting(true)
+    try {
+      const pollTitle = pollDraft.title.trim()
+      const pollMessage = pollDraft.message.trim() || 'Опубликован новый опрос. Откройте MalinkiEco, чтобы проголосовать.'
+
+      setPollDraft(await submitPollRequest(db, profile, pollDraft))
+
+      let pushQueued = true
+      let emailQueued = true
+
+      try {
+        await enqueueBroadcastNotification(db, {
+          title: 'Новый опрос',
+          body: pollTitle,
+          destination: 'polls',
+          category: 'polls',
+          excludedUserIds: [profile.id],
+        })
+      } catch {
+        pushQueued = false
+      }
+
+      try {
+        await enqueueBroadcastEventEmail({
+          subject: 'Новый опрос',
+          title: pollTitle,
+          message: pollMessage,
+          destination: 'polls',
+          category: 'polls',
+          excludedUserIds: [profile.id],
+        })
+      } catch {
+        emailQueued = false
+      }
+
+      if (!pushQueued && !emailQueued) {
+        showNotice('Опрос создан, но push и письмо пока не поставлены в очередь.')
+        return
+      }
+      if (!pushQueued) {
+        showNotice('Опрос создан, но push-уведомление пока не поставлено в очередь.')
+        return
+      }
+      if (!emailQueued) {
+        showNotice('Опрос создан, но письмо пока не поставлено в очередь.')
+        return
+      }
+
+      showNotice('Опрос создан')
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Не удалось создать опрос')
+    } finally {
+      setPollSubmitting(false)
+    }
+  }
+
+  const handleClosePoll = async (poll: CommunityEvent) => {
+    if (!db || !profile || poll.isClosed) return
+
+    try {
+      await closePollRequest(db, profile, poll)
+
+      let pushQueued = true
+      let emailQueued = true
+
+      try {
+        await enqueueBroadcastNotification(db, {
+          title: 'Опрос закрыт',
+          body: poll.title,
+          destination: 'polls',
+          category: 'polls',
+          excludedUserIds: [profile.id],
+        })
+      } catch {
+        pushQueued = false
+      }
+
+      try {
+        await enqueueBroadcastEventEmail({
+          subject: 'Опрос закрыт',
+          title: poll.title,
+          message: poll.message.trim() || 'Опрос завершен. Откройте MalinkiEco, чтобы ознакомиться с итогами.',
+          destination: 'polls',
+          category: 'polls',
+          excludedUserIds: [profile.id],
+        })
+      } catch {
+        emailQueued = false
+      }
+
+      if (!pushQueued && !emailQueued) {
+        showNotice('Опрос закрыт, но push и письмо пока не поставлены в очередь.')
+        return
+      }
+      if (!pushQueued) {
+        showNotice('Опрос закрыт, но push-уведомление пока не поставлено в очередь.')
+        return
+      }
+      if (!emailQueued) {
+        showNotice('Опрос закрыт, но письмо пока не поставлено в очередь.')
+        return
+      }
+
+      showNotice('Опрос закрыт')
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Не удалось закрыть опрос')
+    }
+  }
+
+  const handleCloseCharge = async (event: CommunityEvent) => {
+    if (!db || !profile || event.isClosed) return
+
+    try {
+      await closeChargeRequest(db, profile, event)
+
+      let pushQueued = true
+      let emailQueued = true
+
+      try {
+        await enqueueBroadcastNotification(db, {
+          title: 'Сбор закрыт',
+          body: event.title,
+          destination: 'events',
+          category: 'events',
+          excludedUserIds: [profile.id],
+        })
+      } catch {
+        pushQueued = false
+      }
+
+      try {
+        await enqueueBroadcastEventEmail({
+          subject: 'Сбор закрыт',
+          title: event.title,
+          message: event.message.trim() || 'Сбор завершен. Откройте MalinkiEco, чтобы ознакомиться с деталями.',
+          amount: event.amount,
+          destination: 'events',
+          category: 'events',
+          excludedUserIds: [profile.id],
+        })
+      } catch {
+        emailQueued = false
+      }
+
+      if (!pushQueued && !emailQueued) {
+        showNotice('Сбор закрыт, но push и письмо пока не поставлены в очередь.')
+        return
+      }
+      if (!pushQueued) {
+        showNotice('Сбор закрыт, но push-уведомление пока не поставлено в очередь.')
+        return
+      }
+      if (!emailQueued) {
+        showNotice('Сбор закрыт, но письмо пока не поставлено в очередь.')
+        return
+      }
+
+      showNotice('Сбор закрыт')
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Не удалось закрыть сбор')
+    }
+  }
+
+  const handleConfirmPayment = async (request: ManualPaymentRequest) => {
+    if (!db || !profile) return
+
     try {
       await confirmPaymentRequestAction(db, profile, request.id)
+
+      let pushQueued = true
+      let emailQueued = true
+
+      const paymentTitle = request.eventTitle || request.purpose || 'Платеж пользователя'
+      const paymentPurpose = request.eventTitle || request.purpose || undefined
+      const paymentMessage = paymentPurpose
+        ? `Ваш платеж на сумму ${request.amount} ₽ подтвержден. Назначение: ${paymentPurpose}.`
+        : `Ваш платеж на сумму ${request.amount} ₽ подтвержден.`
+
       try {
         await enqueueTargetedNotification(db, {
           title: 'Оплата подтверждена',
-          body: `Платеж на сумму ${request.amount} ₽ подтвержден.`,
+          body: paymentMessage,
           destination: 'payments',
           category: 'payments',
           targetUserIds: [request.userId],
         })
       } catch {
-        showNotice('Оплата подтверждена, но уведомление пользователю пока не поставлено в очередь.')
+        pushQueued = false
+      }
+
+      try {
+        await enqueueTargetedEventEmail({
+          subject: 'Оплата подтверждена',
+          title: paymentTitle,
+          message: paymentMessage,
+          amount: request.amount,
+          purpose: paymentPurpose,
+          destination: 'payments',
+          category: 'payments',
+          targetUserIds: [request.userId],
+        })
+      } catch {
+        emailQueued = false
+      }
+
+      if (!pushQueued && !emailQueued) {
+        showNotice('Оплата подтверждена, но push и письмо пользователю пока не поставлены в очередь.')
         return
       }
+      if (!pushQueued) {
+        showNotice('Оплата подтверждена, но push-уведомление пользователю пока не поставлено в очередь.')
+        return
+      }
+      if (!emailQueued) {
+        showNotice('Оплата подтверждена, но письмо пользователю пока не поставлено в очередь.')
+        return
+      }
+
       showNotice('Оплата подтверждена')
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось подтвердить оплату')
     }
   }
 
-  const rejectPayment = async (request: ManualPaymentRequest, reason: string) => {
+  const handleRejectPayment = async (request: ManualPaymentRequest, reason: string) => {
     if (!db || !profile) return
+
     try {
       await rejectPaymentRequestAction(db, profile, request.id, reason)
+
+      let pushQueued = true
+      let emailQueued = true
+
+      const paymentTitle = request.eventTitle || request.purpose || 'Платеж пользователя'
+      const paymentPurpose = request.eventTitle || request.purpose || undefined
+      const paymentMessage = reason.trim()
+        ? `Ваш платеж на сумму ${request.amount} ₽ отклонен. Причина: ${reason.trim()}.`
+        : `Ваш платеж на сумму ${request.amount} ₽ отклонен. Уточните детали у администратора или модератора.`
+
       try {
         await enqueueTargetedNotification(db, {
           title: 'Оплата отклонена',
-          body: reason.trim()
-            ? `Платеж на сумму ${request.amount} ₽ отклонен. Причина: ${reason.trim()}`
-            : `Платеж на сумму ${request.amount} ₽ отклонен.`,
+          body: paymentMessage,
           destination: 'payments',
           category: 'payments',
           targetUserIds: [request.userId],
         })
       } catch {
-        showNotice('Оплата отклонена, но уведомление пользователю пока не поставлено в очередь.')
+        pushQueued = false
+      }
+
+      try {
+        await enqueueTargetedEventEmail({
+          subject: 'Оплата отклонена',
+          title: paymentTitle,
+          message: paymentMessage,
+          amount: request.amount,
+          purpose: paymentPurpose,
+          destination: 'payments',
+          category: 'payments',
+          targetUserIds: [request.userId],
+        })
+      } catch {
+        emailQueued = false
+      }
+
+      if (!pushQueued && !emailQueued) {
+        showNotice('Оплата отклонена, но push и письмо пользователю пока не поставлены в очередь.')
         return
       }
+      if (!pushQueued) {
+        showNotice('Оплата отклонена, но push-уведомление пользователю пока не поставлено в очередь.')
+        return
+      }
+      if (!emailQueued) {
+        showNotice('Оплата отклонена, но письмо пользователю пока не поставлено в очередь.')
+        return
+      }
+
       showNotice('Оплата отклонена')
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось отклонить оплату')
@@ -604,8 +930,8 @@ function App() {
             events={visibleEvents}
             formatDateTime={formatDateTime}
             labelForEventType={labelForEventType}
-            onCreateEvent={createEvent}
-            onCloseCharge={closeCharge}
+            onCreateEvent={handleCreateEvent}
+            onCloseCharge={handleCloseCharge}
           />
         )}
 
@@ -640,8 +966,8 @@ function App() {
             onToggleModerator={toggleModerator}
             onApproveRegistration={approveRegistration}
             onRejectRegistration={rejectRegistration}
-            onConfirmPayment={confirmPayment}
-            onRejectPayment={rejectPayment}
+            onConfirmPayment={handleConfirmPayment}
+            onRejectPayment={handleRejectPayment}
           />
         )}
 
@@ -652,9 +978,9 @@ function App() {
             pollSubmitting={pollSubmitting}
             polls={visiblePolls}
             onFieldChange={updatePollField}
-            onSubmit={submitPoll}
+            onSubmit={handleSubmitPoll}
             onVote={voteInPoll}
-            onClosePoll={closePoll}
+            onClosePoll={handleClosePoll}
             formatDateTime={formatDateTime}
           />
         )}

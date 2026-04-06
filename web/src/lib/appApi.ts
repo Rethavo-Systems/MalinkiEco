@@ -205,8 +205,8 @@ export async function approveRegistrationRequest(
   await createAuditLog(
     db,
     reviewer,
-    'РћРґРѕР±СЂРµРЅР° СЂРµРіРёСЃС‚СЂР°С†РёСЏ',
-    'Р—Р°СЏРІРєР° РЅР° СЂРµРіРёСЃС‚СЂР°С†РёСЋ РѕРґРѕР±СЂРµРЅР°.',
+    'Одобрена регистрация',
+    'Заявка на регистрацию одобрена.',
     request.id,
     request.fullName,
     request.plots.join(', '),
@@ -232,10 +232,10 @@ export async function rejectRegistrationRequest(
   await createAuditLog(
     db,
     reviewer,
-    'РћС‚РєР»РѕРЅРµРЅР° СЂРµРіРёСЃС‚СЂР°С†РёСЏ',
+    'Отклонена регистрация',
     normalizedReason
-      ? `Р—Р°СЏРІРєР° РЅР° СЂРµРіРёСЃС‚СЂР°С†РёСЋ РѕС‚РєР»РѕРЅРµРЅР°. РџСЂРёС‡РёРЅР°: ${normalizedReason}.`
-      : 'Р—Р°СЏРІРєР° РЅР° СЂРµРіРёСЃС‚СЂР°С†РёСЋ РѕС‚РєР»РѕРЅРµРЅР°.',
+      ? `Заявка на регистрацию отклонена. Причина: ${normalizedReason}.`
+      : 'Заявка на регистрацию отклонена.',
     request.id,
     request.fullName,
     request.plots.join(', '),
@@ -252,8 +252,8 @@ export async function setUserBalance(
   await createAuditLog(
     db,
     actor,
-    'РР·РјРµРЅРµРЅ Р±Р°Р»Р°РЅСЃ СѓС‡Р°СЃС‚РЅРёРєР°',
-    `Р‘Р°Р»Р°РЅСЃ РёР·РјРµРЅРµРЅ СЃ ${targetUser.balance} в‚Ѕ РЅР° ${newBalance} в‚Ѕ.`,
+    'Изменен баланс участника',
+    `Баланс изменен с ${targetUser.balance} ₽ на ${newBalance} ₽.`,
     targetUser.id,
     targetUser.fullName,
     formatPlots(targetUser),
@@ -270,10 +270,10 @@ export async function setUserRole(
   await createAuditLog(
     db,
     actor,
-    role === 'MODERATOR' ? 'РќР°Р·РЅР°С‡РµРЅ РјРѕРґРµСЂР°С‚РѕСЂ' : 'РЎРЅСЏС‚Р° СЂРѕР»СЊ РјРѕРґРµСЂР°С‚РѕСЂР°',
+    role === 'MODERATOR' ? 'Назначен модератор' : 'Снята роль модератора',
     role === 'MODERATOR'
-      ? 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЋ РЅР°Р·РЅР°С‡РµРЅР° СЂРѕР»СЊ РјРѕРґРµСЂР°С‚РѕСЂР°.'
-      : 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РїРµСЂРµРІРµРґРµРЅ РІ РѕР±С‹С‡РЅС‹Рµ СѓС‡Р°СЃС‚РЅРёРєРё.',
+      ? 'Пользователю назначена роль модератора.'
+      : 'Пользователь переведен в обычные участники.',
     targetUser.id,
     targetUser.fullName,
     formatPlots(targetUser),
@@ -357,9 +357,9 @@ export async function createEvent(db: Firestore, creator: RemoteUser, draft: Eve
   const amount = Math.max(0, Math.round(draft.amount))
   const type = draft.type
 
-  if (!title) throw new Error('РЈРєР°Р¶РёС‚Рµ Р·Р°РіРѕР»РѕРІРѕРє')
+  if (!title) throw new Error('Укажите заголовок')
   if ((type === 'CHARGE' || type === 'EXPENSE') && amount <= 0) {
-    throw new Error('РЎСѓРјРјР° РґРѕР»Р¶РЅР° Р±С‹С‚СЊ Р±РѕР»СЊС€Рµ РЅСѓР»СЏ')
+    throw new Error('Сумма должна быть больше нуля')
   }
 
   const eventPayload = {
@@ -413,7 +413,7 @@ export async function createEvent(db: Firestore, creator: RemoteUser, draft: Eve
       const fundsSnapshot = await transaction.get(fundsRef)
       const currentFunds = Number(fundsSnapshot.data()?.amount ?? 0)
       if (currentFunds < amount) {
-        throw new Error('РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ СЃСЂРµРґСЃС‚РІ РІ РѕР±С‰РµР№ РєР°СЃСЃРµ')
+        throw new Error('Недостаточно средств в общей кассе')
       }
 
       transaction.set(fundsRef, { amount: currentFunds - amount })
@@ -427,8 +427,8 @@ export async function createEvent(db: Firestore, creator: RemoteUser, draft: Eve
     await createAuditLog(
       db,
       creator,
-      type === 'CHARGE' ? 'РЎРѕР·РґР°РЅ СЃР±РѕСЂ' : type === 'EXPENSE' ? 'РЎРѕР·РґР°РЅР° РѕРїР»Р°С‚Р°' : 'РЎРѕР·РґР°РЅРѕ РѕР±СЉСЏРІР»РµРЅРёРµ',
-      (type === 'CHARGE' || type === 'EXPENSE') ? `${title}. РЎСѓРјРјР°: ${amount} в‚Ѕ.` : title,
+      type === 'CHARGE' ? 'Создан сбор' : type === 'EXPENSE' ? 'Создана оплата' : 'Создано объявление',
+      type === 'CHARGE' || type === 'EXPENSE' ? `${title}. Сумма: ${amount} ₽.` : title,
     )
   }
 }
@@ -436,7 +436,7 @@ export async function createEvent(db: Firestore, creator: RemoteUser, draft: Eve
 export async function closeCharge(db: Firestore, reviewer: RemoteUser, event: CommunityEvent) {
   if (event.type !== 'CHARGE' || event.isClosed) return
   if (reviewer.role !== 'ADMIN' && reviewer.role !== 'MODERATOR') {
-    throw new Error('Р—Р°РєСЂС‹С‚СЊ СЃР±РѕСЂ РјРѕР¶РµС‚ С‚РѕР»СЊРєРѕ РјРѕРґРµСЂР°С‚РѕСЂ РёР»Рё Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ')
+    throw new Error('Закрыть сбор может только модератор или администратор')
   }
 
   await updateDoc(doc(db, 'events', event.id), {
@@ -445,11 +445,11 @@ export async function closeCharge(db: Firestore, reviewer: RemoteUser, event: Co
     closedByName: reviewer.fullName,
     closedAtClient: Date.now(),
     message: event.message.trim()
-      ? `${event.message.trim()}\n\nРЎР±РѕСЂ Р·Р°РІРµСЂС€РµРЅ.`
-      : 'РЎР±РѕСЂ Р·Р°РІРµСЂС€РµРЅ.',
+      ? `${event.message.trim()}\n\nСбор завершен.`
+      : 'Сбор завершен.',
   })
 
-  await createAuditLog(db, reviewer, 'Р—Р°РєСЂС‹С‚ СЃР±РѕСЂ', event.title)
+  await createAuditLog(db, reviewer, 'Закрыт сбор', event.title)
 }
 
 export async function submitPoll(db: Firestore, profile: RemoteUser, pollDraft: PollDraft) {
@@ -461,8 +461,8 @@ export async function submitPoll(db: Firestore, profile: RemoteUser, pollDraft: 
     .filter(Boolean)
     .slice(0, 8)
 
-  if (!title) throw new Error('РЈРєР°Р¶РёС‚Рµ Р·Р°РіРѕР»РѕРІРѕРє РѕРїСЂРѕСЃР°')
-  if (options.length < 2) throw new Error('Р”Р»СЏ РѕРїСЂРѕСЃР° РЅСѓР¶РЅРѕ РјРёРЅРёРјСѓРј РґРІР° РІР°СЂРёР°РЅС‚Р° РѕС‚РІРµС‚Р°')
+  if (!title) throw new Error('Укажите заголовок опроса')
+  if (options.length < 2) throw new Error('Для опроса нужно минимум два варианта ответа')
 
   await addDoc(collection(db, 'events'), {
     title,
@@ -485,7 +485,7 @@ export async function submitPoll(db: Firestore, profile: RemoteUser, pollDraft: 
   })
 
   if (profile.role === 'ADMIN' || profile.role === 'MODERATOR') {
-    await createAuditLog(db, profile, 'РЎРѕР·РґР°РЅ РѕРїСЂРѕСЃ', title)
+    await createAuditLog(db, profile, 'Создан опрос', title)
   }
 
   return INITIAL_POLL_DRAFT
@@ -494,7 +494,7 @@ export async function submitPoll(db: Firestore, profile: RemoteUser, pollDraft: 
 export async function closePoll(db: Firestore, profile: RemoteUser, poll: CommunityEvent) {
   if (poll.isClosed) return
   if (poll.createdById !== profile.id && profile.role !== 'MODERATOR' && profile.role !== 'ADMIN') {
-    throw new Error('Р—Р°РєСЂС‹С‚СЊ РѕРїСЂРѕСЃ РјРѕР¶РµС‚ С‚РѕР»СЊРєРѕ СЃРѕР·РґР°С‚РµР»СЊ, РјРѕРґРµСЂР°С‚РѕСЂ РёР»Рё Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ')
+    throw new Error('Закрыть опрос может только создатель, модератор или администратор')
   }
 
   await updateDoc(doc(db, 'events', poll.id), {
@@ -506,7 +506,7 @@ export async function closePoll(db: Firestore, profile: RemoteUser, poll: Commun
   })
 
   if (profile.role === 'ADMIN' || profile.role === 'MODERATOR') {
-    await createAuditLog(db, profile, 'Р—Р°РєСЂС‹С‚ РѕРїСЂРѕСЃ', poll.title)
+    await createAuditLog(db, profile, 'Закрыт опрос', poll.title)
   }
 }
 
@@ -523,7 +523,7 @@ export async function createPaymentRequest(
     return array.findIndex((candidate) => candidate.id === item.id) === index
   })
 
-  if (normalizedAmount <= 0) throw new Error('РЈРєР°Р¶РёС‚Рµ СЃСѓРјРјСѓ Р±РѕР»СЊС€Рµ РЅСѓР»СЏ')
+  if (normalizedAmount <= 0) throw new Error('Укажите сумму больше нуля')
 
   await addDoc(collection(db, 'payment_requests'), {
     userId: profile.id,
@@ -639,22 +639,22 @@ export async function confirmPaymentRequest(
     db,
     reviewer,
     confirmedRequest.userId,
-    'РћРїР»Р°С‚Р° РїРѕРґС‚РІРµСЂР¶РґРµРЅР°',
+    'Оплата подтверждена',
     confirmedRequest.eventTitle
-      ? `Р’Р°С€ РїР»Р°С‚РµР¶ РЅР° СЃСѓРјРјСѓ ${confirmedRequest.amount} в‚Ѕ РїРѕРґС‚РІРµСЂР¶РґРµРЅ. РќР°Р·РЅР°С‡РµРЅРёРµ: ${confirmedRequest.eventTitle}.`
+      ? `Ваш платеж на сумму ${confirmedRequest.amount} ₽ подтвержден. Назначение: ${confirmedRequest.eventTitle}.`
       : confirmedRequest.purpose
-        ? `Р’Р°С€ РїР»Р°С‚РµР¶ РЅР° СЃСѓРјРјСѓ ${confirmedRequest.amount} в‚Ѕ РїРѕРґС‚РІРµСЂР¶РґРµРЅ. РќР°Р·РЅР°С‡РµРЅРёРµ: ${confirmedRequest.purpose}.`
-        : `Р’Р°С€ РїР»Р°С‚РµР¶ РЅР° СЃСѓРјРјСѓ ${confirmedRequest.amount} в‚Ѕ РїРѕРґС‚РІРµСЂР¶РґРµРЅ.`,
+        ? `Ваш платеж на сумму ${confirmedRequest.amount} ₽ подтвержден. Назначение: ${confirmedRequest.purpose}.`
+        : `Ваш платеж на сумму ${confirmedRequest.amount} ₽ подтвержден.`,
   )
   await createAuditLog(
     db,
     reviewer,
-    'РџРѕРґС‚РІРµСЂР¶РґРµРЅР° РѕРїР»Р°С‚Р°',
+    'Подтверждена оплата',
     confirmedRequest.eventTitle
-      ? `РџРѕРґС‚РІРµСЂР¶РґРµРЅР° РѕРїР»Р°С‚Р° РЅР° ${confirmedRequest.amount} в‚Ѕ. РќР°Р·РЅР°С‡РµРЅРёРµ: ${confirmedRequest.eventTitle}.`
+      ? `Подтверждена оплата на ${confirmedRequest.amount} ₽. Назначение: ${confirmedRequest.eventTitle}.`
       : confirmedRequest.purpose
-        ? `РџРѕРґС‚РІРµСЂР¶РґРµРЅР° РѕРїР»Р°С‚Р° РЅР° ${confirmedRequest.amount} в‚Ѕ. РќР°Р·РЅР°С‡РµРЅРёРµ: ${confirmedRequest.purpose}.`
-        : `РџРѕРґС‚РІРµСЂР¶РґРµРЅР° РѕРїР»Р°С‚Р° РЅР° ${confirmedRequest.amount} в‚Ѕ.`,
+        ? `Подтверждена оплата на ${confirmedRequest.amount} ₽. Назначение: ${confirmedRequest.purpose}.`
+        : `Подтверждена оплата на ${confirmedRequest.amount} ₽.`,
     confirmedRequest.userId,
     confirmedRequest.userName,
     confirmedRequest.plotName,
@@ -691,18 +691,18 @@ export async function rejectPaymentRequest(
     db,
     reviewer,
     userId,
-    'РћРїР»Р°С‚Р° РѕС‚РєР»РѕРЅРµРЅР°',
+    'Оплата отклонена',
     normalizedReason
-      ? `Р’Р°С€ РїР»Р°С‚РµР¶ РЅР° СЃСѓРјРјСѓ ${amount} в‚Ѕ РѕС‚РєР»РѕРЅРµРЅ. РџСЂРёС‡РёРЅР°: ${normalizedReason}.`
-      : `Р’Р°С€ РїР»Р°С‚РµР¶ РЅР° СЃСѓРјРјСѓ ${amount} в‚Ѕ РѕС‚РєР»РѕРЅРµРЅ. РЈС‚РѕС‡РЅРёС‚Рµ РґРµС‚Р°Р»Рё Сѓ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР° РёР»Рё РјРѕРґРµСЂР°С‚РѕСЂР°.`,
+      ? `Ваш платеж на сумму ${amount} ₽ отклонен. Причина: ${normalizedReason}.`
+      : `Ваш платеж на сумму ${amount} ₽ отклонен. Уточните детали у администратора или модератора.`,
   )
   await createAuditLog(
     db,
     reviewer,
-    'РћС‚РєР»РѕРЅРµРЅР° РѕРїР»Р°С‚Р°',
+    'Отклонена оплата',
     normalizedReason
-      ? `РћС‚РєР»РѕРЅРµРЅР° РѕРїР»Р°С‚Р° РЅР° ${amount} в‚Ѕ. РџСЂРёС‡РёРЅР°: ${normalizedReason}.`
-      : `РћС‚РєР»РѕРЅРµРЅР° РѕРїР»Р°С‚Р° РЅР° ${amount} в‚Ѕ.`,
+      ? `Отклонена оплата на ${amount} ₽. Причина: ${normalizedReason}.`
+      : `Отклонена оплата на ${amount} ₽.`,
     userId,
     userName,
     plotName,
