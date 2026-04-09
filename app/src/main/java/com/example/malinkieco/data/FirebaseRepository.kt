@@ -5,6 +5,8 @@ import com.google.android.gms.tasks.Task
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.CollectionReference
@@ -1622,12 +1624,18 @@ class FirebaseRepository(
     private suspend fun ensureRegistrationUser(email: String, password: String) =
         try {
             registrationAuth.signInWithEmailAndPassword(email, password).await()
+        } catch (signInError: FirebaseAuthInvalidUserException) {
+            registrationAuth.createUserWithEmailAndPassword(email, password).await()
+        } catch (signInError: FirebaseAuthInvalidCredentialsException) {
+            if (isInvalidEmailAuthError(signInError)) {
+                throw IllegalArgumentException("Введите корректную почту.")
+            }
+            throw IllegalStateException(
+                "Для этой почты уже начата регистрация с другим паролем. Введите тот же пароль или используйте другую почту."
+            )
         } catch (signInError: Exception) {
             val errorCode = signInError.message.orEmpty()
-            val canCreateNewUser =
-                errorCode.contains("auth/invalid-credential", ignoreCase = true) ||
-                    errorCode.contains("auth/invalid-login-credentials", ignoreCase = true) ||
-                    errorCode.contains("auth/user-not-found", ignoreCase = true)
+            val canCreateNewUser = errorCode.contains("auth/user-not-found", ignoreCase = true)
             if (!canCreateNewUser) throw signInError
             registrationAuth.createUserWithEmailAndPassword(email, password).await()
         }
@@ -1643,6 +1651,14 @@ class FirebaseRepository(
         val message = error.message.orEmpty().lowercase()
         return message.contains("permission-denied") ||
             message.contains("missing or insufficient permissions")
+    }
+
+    private fun isInvalidEmailAuthError(error: Throwable): Boolean {
+        val message = error.message.orEmpty().lowercase()
+        return message.contains("invalid email") ||
+            message.contains("badly formatted") ||
+            message.contains("email address is badly formatted") ||
+            message.contains("incorrectly formatted")
     }
 
     private suspend fun <T> withRegistrationFirestoreRetry(

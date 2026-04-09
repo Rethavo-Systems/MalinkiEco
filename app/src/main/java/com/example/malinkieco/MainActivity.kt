@@ -3316,7 +3316,19 @@ class MainActivity : AppCompatActivity() {
         return when (error) {
             is FirebaseAuthUserCollisionException -> "Такая почта уже зарегистрирована"
             is FirebaseAuthWeakPasswordException -> "Пароль слишком короткий или слишком простой"
-            is FirebaseAuthInvalidCredentialsException -> "Некорректная почта"
+            is FirebaseAuthInvalidCredentialsException -> {
+                val message = error.message.orEmpty().lowercase()
+                if (
+                    message.contains("invalid email") ||
+                    message.contains("badly formatted") ||
+                    message.contains("email address is badly formatted") ||
+                    message.contains("incorrectly formatted")
+                ) {
+                    getString(R.string.validation_email_invalid)
+                } else {
+                    "Для этой почты уже начата регистрация с другим паролем. Введите тот же пароль или используйте другую почту."
+                }
+            }
             is IllegalArgumentException -> error.message ?: getString(R.string.generic_error)
             is IllegalStateException -> error.message ?: getString(R.string.generic_error)
             else -> error.localizedMessage ?: getString(R.string.generic_error)

@@ -73,6 +73,22 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <TextView
+            android:id="@+id/tvRegistrationPlots"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/registration_plots_empty"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRegistrationPlots"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/registration_choose_plots" />
+
+        <TextView
             android:id="@+id/tvRegistrationVerificationStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -111,21 +127,5 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:text="@string/registration_verify_code" />
-
-        <TextView
-            android:id="@+id/tvRegistrationPlots"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/registration_plots_empty"
-            android:textAppearance="@style/TextAppearance.Material3.BodyMedium" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnRegistrationPlots"
-            style="?attr/materialButtonOutlinedStyle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="@string/registration_choose_plots" />
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
