@@ -1622,22 +1622,23 @@ class FirebaseRepository(
     }
 
     private suspend fun ensureRegistrationUser(email: String, password: String) =
-        try {
-            registrationAuth.signInWithEmailAndPassword(email, password).await()
-        } catch (signInError: FirebaseAuthInvalidUserException) {
+        if (!registrationEmailExists(email)) {
             registrationAuth.createUserWithEmailAndPassword(email, password).await()
-        } catch (signInError: FirebaseAuthInvalidCredentialsException) {
-            if (isInvalidEmailAuthError(signInError)) {
-                throw IllegalArgumentException("Введите корректную почту.")
+        } else {
+            try {
+                registrationAuth.signInWithEmailAndPassword(email, password).await()
+            } catch (signInError: FirebaseAuthInvalidUserException) {
+                registrationAuth.createUserWithEmailAndPassword(email, password).await()
+            } catch (signInError: FirebaseAuthInvalidCredentialsException) {
+                if (isInvalidEmailAuthError(signInError)) {
+                    throw IllegalArgumentException("Введите корректную почту.")
+                }
+                throw IllegalStateException(
+                    "Для этой почты уже начата регистрация с другим паролем. Введите тот же пароль или используйте другую почту."
+                )
+            } catch (signInError: Exception) {
+                throw signInError
             }
-            throw IllegalStateException(
-                "Для этой почты уже начата регистрация с другим паролем. Введите тот же пароль или используйте другую почту."
-            )
-        } catch (signInError: Exception) {
-            val errorCode = signInError.message.orEmpty()
-            val canCreateNewUser = errorCode.contains("auth/user-not-found", ignoreCase = true)
-            if (!canCreateNewUser) throw signInError
-            registrationAuth.createUserWithEmailAndPassword(email, password).await()
         }
 
     private suspend fun syncRegistrationSession(expectedUid: String) {
@@ -1659,6 +1660,11 @@ class FirebaseRepository(
             message.contains("badly formatted") ||
             message.contains("email address is badly formatted") ||
             message.contains("incorrectly formatted")
+    }
+
+    private suspend fun registrationEmailExists(email: String): Boolean {
+        val methods = registrationAuth.fetchSignInMethodsForEmail(email).await().signInMethods.orEmpty()
+        return methods.isNotEmpty()
     }
 
     private suspend fun <T> withRegistrationFirestoreRetry(
