@@ -106,7 +106,7 @@ function App() {
     paymentRequests,
     registrationRequests,
     auditLogs,
-  } = useResidentData(profile)
+  } = useResidentData(profile, activeTab)
 
   const isStaff = profile?.role === 'ADMIN' || profile?.role === 'MODERATOR'
   const pendingPaymentRequestsCount = paymentRequests.filter((request) => request.status === 'PENDING').length

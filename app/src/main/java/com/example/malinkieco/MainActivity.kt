@@ -1215,13 +1215,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        usersListener = repository.observeUsers(
-            onChange = { users ->
+        ownersListener = repository.observeOwners(
+            onChange = { owners ->
                 runOnUiThread {
-                    allUsers = users
+                    val actualUsers = owners.filterNot { it.isPlaceholder }
+                    allUsers = actualUsers
                     chatAdapter.notifyDataSetChanged()
                     currentUser?.let { active ->
-                        val refreshedUser = users.firstOrNull { it.id == active.id }
+                        val refreshedUser = actualUsers.firstOrNull { it.id == active.id }
                         if (refreshedUser == null) {
                             doLogout()
                             toast("Ваш аккаунт был удален. Войдите под другими данными.")
@@ -1232,14 +1233,6 @@ class MainActivity : AppCompatActivity() {
                         tvWelcomeDetails.text = getString(R.string.your_plot, formatUserPlots(refreshedUser))
                         bindBalanceHero(refreshedUser.balance)
                     }
-                }
-            },
-            onError = { runOnUiThread { toast(getString(R.string.users_load_failed)) } }
-        )
-
-        ownersListener = repository.observeOwners(
-            onChange = { owners ->
-                runOnUiThread {
                     userAdapter.submitList(owners)
                     tvResidentsEmpty.visibility = if (owners.isEmpty()) View.VISIBLE else View.GONE
                 }
@@ -1292,22 +1285,28 @@ class MainActivity : AppCompatActivity() {
             onError = { runOnUiThread { toast(getString(R.string.events_load_failed)) } }
         )
 
-        auditLogsListener = repository.observeAuditLogs(
-            onChange = { logs ->
-                runOnUiThread {
-                    auditLogAdapter.submitList(logs)
-                    rvLogs.visibility = if (logs.isEmpty()) View.GONE else View.VISIBLE
-                    tvLogsEmpty.visibility = if (logs.isEmpty()) View.VISIBLE else View.GONE
+        if (canSeeLogs()) {
+            auditLogsListener = repository.observeAuditLogs(
+                onChange = { logs ->
+                    runOnUiThread {
+                        auditLogAdapter.submitList(logs)
+                        rvLogs.visibility = if (logs.isEmpty()) View.GONE else View.VISIBLE
+                        tvLogsEmpty.visibility = if (logs.isEmpty()) View.VISIBLE else View.GONE
+                    }
+                },
+                onError = {
+                    runOnUiThread {
+                        auditLogAdapter.submitList(emptyList())
+                        rvLogs.visibility = View.GONE
+                        tvLogsEmpty.visibility = View.VISIBLE
+                    }
                 }
-            },
-            onError = {
-                runOnUiThread {
-                    auditLogAdapter.submitList(emptyList())
-                    rvLogs.visibility = View.GONE
-                    tvLogsEmpty.visibility = View.VISIBLE
-                }
-            }
-        )
+            )
+        } else {
+            auditLogAdapter.submitList(emptyList())
+            rvLogs.visibility = View.GONE
+            tvLogsEmpty.visibility = View.VISIBLE
+        }
 
         paymentRequestsListener = repository.observePaymentRequests(
             currentUser = user,
