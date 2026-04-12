@@ -97,7 +97,7 @@ function App() {
     authUser,
     onMissingProfile: handleMissingProfileAccess,
   })
-  const webPush = useWebPush(profile, showNotice)
+  const { unbindBeforeLogout } = useWebPush(profile, showNotice)
 
   const {
     users,
@@ -282,7 +282,7 @@ function App() {
 
   const handleLogout = async () => {
     if (!auth) return
-    await webPush.unbindBeforeLogout()
+    await unbindBeforeLogout()
     await signOut(auth)
     setProfile(null)
   }
@@ -915,23 +915,6 @@ function App() {
         </div>
 
         <div className="topbar-actions">
-          <div className={`web-push-card is-${webPush.status}`}>
-            <div className="web-push-card__copy">
-              <span className="web-push-card__eyebrow">Push</span>
-              <strong>{webPush.presentation.title}</strong>
-              <small>{webPush.presentation.description}</small>
-            </div>
-            {webPush.presentation.actionLabel && (
-              <button
-                className="ghost-button web-push-card__button"
-                type="button"
-                onClick={webPush.handleAction}
-                disabled={webPush.busy}
-              >
-                {webPush.presentation.actionLabel}
-              </button>
-            )}
-          </div>
           <div className={`balance-chip ${balanceTone(profile.balance)}`}>
             <span>{balanceLabel(profile.balance)}</span>
             <strong>{profile.balance.toLocaleString('ru-RU')} ₽</strong>

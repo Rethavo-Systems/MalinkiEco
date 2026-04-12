@@ -4,6 +4,7 @@ import {
   disableStoredWebPushSubscription,
   getCurrentPushSubscription,
   isAppleMobileDevice,
+  isStandaloneDisplayMode,
   removeStoredWebPushSubscription,
   resolveWebPushSupportState,
   saveWebPushSubscription,
@@ -20,6 +21,8 @@ type WebPushPresentation = {
   description: string
   actionLabel: string | null
 }
+
+const AUTO_PROMPT_SESSION_KEY = 'malinkieco-web-push-autoprompted'
 
 export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallback) {
   const [status, setStatus] = useState<WebPushSupportState>('unsupported')
@@ -81,22 +84,27 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
     }
   }, [profile, syncCurrentSubscription])
 
-  const enable = useCallback(async () => {
+  const enable = useCallback(async (options: { silent?: boolean } = {}) => {
+    const silent = options.silent === true
     if (!db || !profile) return
 
     const supportState = resolveWebPushSupportState()
     if (supportState === 'install-required') {
-      showNotice(
-        isAppleMobileDevice()
-          ? 'На iPhone сначала откройте меню “Поделиться”, выберите “На экран Домой”, затем откройте сайт как приложение и включите push.'
-          : 'Сначала откройте сайт как установленное приложение, затем включите push.',
-      )
+      if (!silent) {
+        showNotice(
+          isAppleMobileDevice()
+            ? 'На iPhone сначала откройте меню “Поделиться”, выберите “На экран Домой”, затем откройте сайт как приложение и включите push.'
+            : 'Сначала откройте сайт как установленное приложение, затем включите push.',
+        )
+      }
       setStatus('install-required')
       return
     }
 
     if (supportState === 'unsupported') {
-      showNotice('В этом браузере web push пока не поддерживается.')
+      if (!silent) {
+        showNotice('В этом браузере web push пока не поддерживается.')
+      }
       setStatus('unsupported')
       return
     }
@@ -108,21 +116,27 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
 
       if (permission !== 'granted') {
         setStatus(permission === 'denied' ? 'blocked' : 'ready')
-        showNotice(
-          permission === 'denied'
-            ? 'Push отключены в настройках браузера. Разрешите уведомления для MalinkiEco и попробуйте снова.'
-            : 'Разрешение на push не выдано.',
-        )
+        if (!silent) {
+          showNotice(
+            permission === 'denied'
+              ? 'Push отключены в настройках браузера. Разрешите уведомления для MalinkiEco и попробуйте снова.'
+              : 'Разрешение на push не выдано.',
+          )
+        }
         return
       }
 
       const subscription = await subscribeToWebPush()
       await saveWebPushSubscription(db, profile, subscription)
       setStatus('enabled')
-      showNotice('Push для веб-версии включены. На iPhone уведомления будут приходить из установленного приложения.')
+      if (!silent) {
+        showNotice('Push для веб-версии включены. На iPhone уведомления будут приходить из установленного приложения.')
+      }
     } catch (error) {
       setStatus(resolveWebPushSupportState())
-      showNotice(humanizeError(error))
+      if (!silent) {
+        showNotice(humanizeError(error))
+      }
     } finally {
       setBusy(false)
     }
@@ -163,6 +177,31 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
 
     await enable()
   }, [busy, disable, enable, status])
+
+  useEffect(() => {
+    if (!profile || busy || status !== 'ready' || !isStandaloneDisplayMode()) {
+      return
+    }
+
+    if (sessionStorage.getItem(AUTO_PROMPT_SESSION_KEY) === '1') {
+      return
+    }
+
+    const handleFirstGesture = () => {
+      sessionStorage.setItem(AUTO_PROMPT_SESSION_KEY, '1')
+      void enable({ silent: true })
+      window.removeEventListener('pointerdown', handleFirstGesture)
+      window.removeEventListener('keydown', handleFirstGesture)
+    }
+
+    window.addEventListener('pointerdown', handleFirstGesture, { once: true })
+    window.addEventListener('keydown', handleFirstGesture, { once: true })
+
+    return () => {
+      window.removeEventListener('pointerdown', handleFirstGesture)
+      window.removeEventListener('keydown', handleFirstGesture)
+    }
+  }, [busy, enable, profile, status])
 
   const presentation = useMemo<WebPushPresentation>(() => {
     switch (status) {

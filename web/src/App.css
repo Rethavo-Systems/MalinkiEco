@@ -342,11 +342,6 @@
   gap: 16px;
 }
 
-.topbar-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
 .brand-pill {
   width: 52px;
   height: 52px;
@@ -366,57 +361,6 @@
   display: grid;
   gap: 4px;
   background: rgba(255, 255, 255, 0.08);
-}
-
-.web-push-card {
-  max-width: 340px;
-  padding: 12px 14px;
-  border-radius: 20px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.web-push-card.is-enabled {
-  background: rgba(96, 189, 131, 0.14);
-  border-color: rgba(96, 189, 131, 0.26);
-}
-
-.web-push-card.is-install-required {
-  background: rgba(255, 188, 94, 0.14);
-  border-color: rgba(255, 188, 94, 0.24);
-}
-
-.web-push-card.is-blocked,
-.web-push-card.is-unsupported {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.web-push-card__copy {
-  display: grid;
-  gap: 4px;
-}
-
-.web-push-card__eyebrow {
-  font-size: 0.72rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(229, 237, 252, 0.68);
-}
-
-.web-push-card__copy strong {
-  color: #f7fbff;
-}
-
-.web-push-card__copy small {
-  color: rgba(228, 237, 247, 0.8);
-  line-height: 1.35;
-}
-
-.web-push-card__button {
-  white-space: nowrap;
 }
 
 .balance-chip span {
@@ -1286,15 +1230,7 @@ button:disabled {
   }
 
   .copy-button,
-  .notice-close,
-  .web-push-card__button {
+  .notice-close {
     width: 100%;
-  }
-
-  .web-push-card {
-    max-width: none;
-    width: 100%;
-    align-items: stretch;
-    flex-direction: column;
   }
 }
