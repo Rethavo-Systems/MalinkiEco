@@ -1,4 +1,4 @@
-export type Role = 'USER' | 'MODERATOR' | 'ADMIN'
+export type Role = 'USER' | 'MODERATOR' | 'ADMIN' | 'TESTER'
 export type EventType = 'INFO' | 'CHARGE' | 'EXPENSE' | 'POLL'
 export type TabKey = 'events' | 'chat' | 'owners' | 'polls' | 'payments' | 'logs'
 export type AuthMode = 'login' | 'register'

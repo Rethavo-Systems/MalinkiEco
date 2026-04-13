@@ -161,6 +161,7 @@ export function balanceLabel(balance: number): string {
 }
 
 export function roleLabel(role: Role): string {
+  if (role === 'TESTER') return 'Тестер'
   if (role === 'ADMIN') return 'Администратор'
   if (role === 'MODERATOR') return 'Модератор'
   return 'Собственник'

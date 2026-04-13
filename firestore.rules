@@ -108,7 +108,7 @@ service cloud.firestore {
       allow create: if isAdmin() || isModerator() ||
         (signedIn() &&
          request.auth.uid == userId &&
-         request.resource.data.role in ['USER', 'MODERATOR', 'ADMIN']);
+         request.resource.data.role in ['USER', 'MODERATOR', 'ADMIN', 'TESTER']);
 
       allow update: if isAdmin() ||
         (isModerator() &&

@@ -99,10 +99,12 @@ function App() {
   const maintenanceEnabled = appGate.maintenanceEnabled
 
   const { profile, profileLoading, setProfile } = useResidentProfile({
-    authUser: maintenanceEnabled ? null : authUser,
+    authUser,
     onMissingProfile: handleMissingProfileAccess,
   })
-  const { unbindBeforeLogout } = useWebPush(maintenanceEnabled ? null : profile, showNotice)
+  const isMaintenancePrivileged = profile?.role === 'ADMIN' || profile?.role === 'TESTER'
+  const maintenanceLocked = maintenanceEnabled && !isMaintenancePrivileged
+  const { unbindBeforeLogout } = useWebPush(maintenanceLocked ? null : profile, showNotice)
 
   const {
     users,
@@ -114,7 +116,7 @@ function App() {
     paymentRequests,
     registrationRequests,
     auditLogs,
-  } = useResidentData(maintenanceEnabled ? null : profile, activeTab)
+  } = useResidentData(maintenanceLocked ? null : profile, activeTab)
 
   const isStaff = profile?.role === 'ADMIN' || profile?.role === 'MODERATOR'
   const pendingPaymentRequestsCount = paymentRequests.filter((request) => request.status === 'PENDING').length
@@ -876,11 +878,11 @@ function App() {
     return <SetupScreen />
   }
 
-  if (appGate.loading || authLoading || profileLoading) {
+  if (appGate.loading || authLoading || (authUser ? profileLoading : false)) {
     return <SplashScreen message="Подключаем веб-кабинет поселка..." />
   }
 
-  if (maintenanceEnabled) {
+  if (maintenanceLocked) {
     return <MaintenanceScreen title={appGate.maintenanceTitle} message={appGate.maintenanceMessage} />
   }
 
