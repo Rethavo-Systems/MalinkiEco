@@ -503,22 +503,22 @@ function App() {
       await approveRegistrationRequestAction(db, profile, request)
       try {
         await enqueueTargetedNotification(db, {
-          title: request.requestType === 'PROFILE_UPDATE' ? '��������� ������ ��������' : '����������� ��������',
+          title: request.requestType === 'PROFILE_UPDATE' ? 'Изменение данных одобрено' : 'Регистрация одобрена',
           body:
             request.requestType === 'PROFILE_UPDATE'
-              ? '���� ������ ��������� ����� �������� �����������.'
-              : '���� ������ ��������. ������ ����� ����� � �������.',
+              ? 'Ваши данные обновлены после одобрения заявки.'
+              : 'Ваша заявка одобрена. Теперь можно войти в систему.',
           destination: 'auth',
           category: 'registration',
           targetUserIds: [request.id],
         })
       } catch {
-        showNotice('������ ��������, �� ����������� ������������ ���� �� ���������� � �������.')
+        showNotice('Заявка одобрена, но уведомление пользователю пока не поставлено в очередь.')
         return
       }
-      showNotice(request.requestType === 'PROFILE_UPDATE' ? '��������� ������ ��������' : '����������� ��������')
+      showNotice(request.requestType === 'PROFILE_UPDATE' ? 'Изменение данных одобрено' : 'Регистрация одобрена')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : '�� ������� �������� ������')
+      showNotice(error instanceof Error ? error.message : 'Не удалось одобрить заявку')
     }
   }
 
@@ -528,25 +528,25 @@ function App() {
       await rejectRegistrationRequestAction(db, profile, request, reason)
       try {
         await enqueueTargetedNotification(db, {
-          title: request.requestType === 'PROFILE_UPDATE' ? '��������� ������ ���������' : '����������� ���������',
+          title: request.requestType === 'PROFILE_UPDATE' ? 'Изменение данных отклонено' : 'Регистрация отклонена',
           body: reason.trim()
             ? request.requestType === 'PROFILE_UPDATE'
-              ? `������ �� ��������� ������ ���������. �������: ${reason.trim()}`
-              : `���� ������ ���������. �������: ${reason.trim()}`
+              ? `Запрос на изменение данных отклонен. Причина: ${reason.trim()}`
+              : `Ваша заявка отклонена. Причина: ${reason.trim()}`
             : request.requestType === 'PROFILE_UPDATE'
-              ? '������ �� ��������� ������ ���������.'
-              : '���� ������ ���������. ����������� ����� �������� � �������������.',
+              ? 'Запрос на изменение данных отклонен.'
+              : 'Ваша заявка отклонена. Обратитесь к модератору или администратору.',
           destination: 'auth',
           category: 'registration',
           targetUserIds: [request.id],
         })
       } catch {
-        showNotice('������ ���������, �� ����������� ������������ ���� �� ���������� � �������.')
+        showNotice('Заявка отклонена, но уведомление пользователю пока не поставлено в очередь.')
         return
       }
-      showNotice(request.requestType === 'PROFILE_UPDATE' ? '��������� ������ ���������' : '����������� ���������')
+      showNotice(request.requestType === 'PROFILE_UPDATE' ? 'Изменение данных отклонено' : 'Регистрация отклонена')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : '�� ������� ��������� ������')
+      showNotice(error instanceof Error ? error.message : 'Не удалось отклонить заявку')
     }
   }
 
@@ -981,7 +981,7 @@ function App() {
             <strong>{profile.balance.toLocaleString('ru-RU')} ₽</strong>
           </div>
           <button className="ghost-button" type="button" onClick={() => setSettingsOpen(true)}>
-            ���������
+            Настройки
           </button>
         </div>
       </header>
