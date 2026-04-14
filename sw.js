@@ -48,7 +48,7 @@ self.addEventListener('push', (event) => {
       body,
       tag: notificationTag,
       badge: '/notification-badge.png',
-      icon: '/pwa-192.png',
+      icon: '/brand-pwa-192.png',
       vibrate: [180, 80, 180],
       timestamp,
       renotify: true,
