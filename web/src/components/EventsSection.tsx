@@ -41,15 +41,13 @@ const EXPENSE_TEMPLATES: EventTemplate[] = [
   {
     name: 'За электричество',
     title: 'Оплата за электричество',
-    message:
-      'Из общей суммы поселка проводится оплата за электричество. Средства списываются на покрытие текущих расходов по электроэнергии.',
+    message: 'Из общей суммы поселка проводится оплата за электричество.',
     type: 'EXPENSE',
   },
   {
     name: 'Вывоз мусора',
     title: 'Оплата за вывоз мусора',
-    message:
-      'Из общей суммы поселка проводится оплата за вывоз мусора. Это обязательный расход для поддержания порядка на территории КП.',
+    message: 'Из общей суммы поселка проводится оплата за вывоз мусора.',
     type: 'EXPENSE',
   },
   {
@@ -103,6 +101,10 @@ export function EventsSection({
   const [amount, setAmount] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
+  const [editingEventId, setEditingEventId] = useState('')
+  const [editingTitle, setEditingTitle] = useState('')
+  const [editingMessage, setEditingMessage] = useState('')
+  const [editingSubmitting, setEditingSubmitting] = useState(false)
 
   const sortedEvents = useMemo(
     () => [...events].sort((left, right) => Number(right.createdAtClient ?? 0) - Number(left.createdAtClient ?? 0)),
@@ -162,12 +164,29 @@ export function EventsSection({
     }
   }
 
-  const handleEdit = async (event: CommunityEvent) => {
-    const nextTitle = window.prompt('Новый заголовок', event.title)
-    if (nextTitle === null) return
-    const nextMessage = window.prompt('Новое описание', event.message)
-    if (nextMessage === null) return
-    await onEditEvent(event, { title: nextTitle, message: nextMessage })
+  const startEdit = (event: CommunityEvent) => {
+    setEditingEventId(event.id)
+    setEditingTitle(event.title)
+    setEditingMessage(event.message)
+  }
+
+  const cancelEdit = () => {
+    setEditingEventId('')
+    setEditingTitle('')
+    setEditingMessage('')
+  }
+
+  const submitEdit = async (event: CommunityEvent) => {
+    const normalizedTitle = editingTitle.trim()
+    if (!normalizedTitle) return
+
+    setEditingSubmitting(true)
+    try {
+      await onEditEvent(event, { title: normalizedTitle, message: editingMessage })
+      cancelEdit()
+    } finally {
+      setEditingSubmitting(false)
+    }
   }
 
   return (
@@ -269,6 +288,7 @@ export function EventsSection({
         ) : (
           sortedEvents.map((item) => {
             const canCloseCharge = item.type === 'CHARGE' && !item.isClosed && isStaff
+            const isEditing = editingEventId === item.id
 
             return (
               <article key={item.id} className={`event-card event-${item.type.toLowerCase()}`}>
@@ -280,16 +300,48 @@ export function EventsSection({
                 {item.message.trim() && <p>{item.message}</p>}
                 {item.amount > 0 && <strong className="event-amount">{item.amount.toLocaleString('ru-RU')} ₽</strong>}
                 {item.createdByName && <p className="hero-copy compact">Создал: {item.createdByName}</p>}
+
                 {isStaff && (
                   <div className="chat-actions-inline">
-                    <button className="ghost-button" type="button" onClick={() => void handleEdit(item)}>
-                      Редактировать
-                    </button>
+                    {!isEditing && (
+                      <button className="ghost-button" type="button" onClick={() => startEdit(item)}>
+                        Редактировать
+                      </button>
+                    )}
                     {canCloseCharge && (
                       <button className="ghost-button" type="button" onClick={() => void onCloseCharge(item)}>
                         Закрыть сбор
                       </button>
                     )}
+                  </div>
+                )}
+
+                {isStaff && isEditing && (
+                  <div className="event-edit-inline">
+                    <input
+                      value={editingTitle}
+                      onChange={(event) => setEditingTitle(event.target.value)}
+                      placeholder="Новый заголовок"
+                    />
+                    <textarea
+                      value={editingMessage}
+                      onChange={(event) => setEditingMessage(event.target.value)}
+                      placeholder="Новое описание"
+                      rows={3}
+                    />
+                    <div className="chat-actions-inline">
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={() => void submitEdit(item)}
+                        disabled={editingSubmitting || !editingTitle.trim()}
+                      >
+                        {editingSubmitting ? 'Сохраняем...' : 'Сохранить'}
+                      </button>
+                      <button className="ghost-button" type="button" onClick={cancelEdit} disabled={editingSubmitting}>
+                        Отмена
+                      </button>
+                    </div>
                   </div>
                 )}
               </article>

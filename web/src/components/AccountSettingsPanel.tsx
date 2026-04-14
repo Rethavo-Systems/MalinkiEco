@@ -36,9 +36,9 @@ export function AccountSettingsPanel({
   if (!open) return null
 
   const updateToggle = (key: keyof NotificationSettings, checked: boolean) => {
-    const next = { ...settings, [key]: checked }
-    setSettings(next)
-    void onUpdateNotificationSettings(next)
+    const nextSettings = { ...settings, [key]: checked }
+    setSettings(nextSettings)
+    void onUpdateNotificationSettings(nextSettings)
   }
 
   return (

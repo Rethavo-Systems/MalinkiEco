@@ -32,10 +32,8 @@ export function useAppGate(): AppGateState {
         setState({
           loading: false,
           maintenanceEnabled: Boolean(data.maintenanceEnabled ?? false),
-          maintenanceTitle:
-            String(data.maintenanceTitle ?? '').trim() || DEFAULT_STATE.maintenanceTitle,
-          maintenanceMessage:
-            String(data.maintenanceMessage ?? '').trim() || DEFAULT_STATE.maintenanceMessage,
+          maintenanceTitle: String(data.maintenanceTitle ?? '').trim() || DEFAULT_STATE.maintenanceTitle,
+          maintenanceMessage: String(data.maintenanceMessage ?? '').trim() || DEFAULT_STATE.maintenanceMessage,
         })
       },
       () => {

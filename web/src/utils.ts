@@ -1,4 +1,4 @@
-import { DEFAULT_NOTIFICATION_SETTINGS } from './constants'
+﻿import { DEFAULT_NOTIFICATION_SETTINGS } from './constants'
 import type { CommunityEvent, NotificationSettings, PaymentTransferConfig, RemoteUser, Role } from './types'
 
 export function extractCreatedAt(createdAt: unknown, fallback: unknown): number {
@@ -199,3 +199,4 @@ export function paymentDetails(config: PaymentTransferConfig) {
 export function hasAnyPaymentDetails(config: PaymentTransferConfig): boolean {
   return paymentDetails(config).some((item) => item.value.trim())
 }
+

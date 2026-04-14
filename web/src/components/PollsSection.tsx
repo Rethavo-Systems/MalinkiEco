@@ -104,14 +104,20 @@ export function PollsSection({
               placeholder={'Варианты ответов, каждый с новой строки\nДа\nНет'}
               rows={4}
             />
-            <label className="settings-toggle">
+
+            <label className="poll-anonymous-toggle" htmlFor="poll-anonymous">
               <input
+                id="poll-anonymous"
                 type="checkbox"
                 checked={pollDraft.isAnonymous}
                 onChange={(event) => onFieldChange('isAnonymous', event.target.checked)}
               />
-              <span>Анонимный опрос</span>
+              <span className="poll-anonymous-toggle__track" aria-hidden="true">
+                <span className="poll-anonymous-toggle__thumb" />
+              </span>
+              <span className="poll-anonymous-toggle__label">Анонимный опрос</span>
             </label>
+
             {formError && <p className="error-note">{formError}</p>}
             <button
               className="primary-button"

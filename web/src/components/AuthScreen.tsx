@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+﻿import { useState, type FormEvent } from 'react'
 import type { AuthFormState, AuthMode } from '../types'
 import { SiteFooter } from './SiteFooter'
 
@@ -244,3 +244,4 @@ export function AuthScreen({
     </div>
   )
 }
+

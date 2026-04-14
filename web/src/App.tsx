@@ -73,7 +73,7 @@ import {
 import './App.css'
 
 const EVENT_EMAIL_FOOTER =
-  'Р РµРєРѕРјРµРЅРґСѓРµРј РѕС‚РєСЂС‹С‚СЊ MalinkiEco, С‡С‚РѕР±С‹ РѕР·РЅР°РєРѕРјРёС‚СЊСЃСЏ СЃ РґРµС‚Р°Р»СЏРјРё СЃРѕР±С‹С‚РёСЏ Рё Р°РєС‚СѓР°Р»СЊРЅРѕР№ РёРЅС„РѕСЂРјР°С†РёРµР№.'
+  'Рекомендуем открыть MalinkiEco, чтобы ознакомиться с деталями события и актуальной информацией.'
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>(() => readRequestedTabFromUrl() ?? 'events')
@@ -204,14 +204,14 @@ function App() {
     amount?: number
     purpose?: string
   }) => {
-    const lines = ['Р—РґСЂР°РІСЃС‚РІСѓР№С‚Рµ!', '', `РўРµРјР°: ${subject}`, `Р—Р°РіРѕР»РѕРІРѕРє: ${title}`]
+    const lines = ['Здравствуйте!', '', `Тема: ${subject}`, `Заголовок: ${title}`]
 
     if (typeof amount === 'number' && amount > 0) {
-      lines.push(`РЎСѓРјРјР°: ${amount} в‚Ѕ`)
+      lines.push(`Сумма: ${amount} ₽`)
     }
 
     if (purpose) {
-      lines.push(`РќР°Р·РЅР°С‡РµРЅРёРµ: ${purpose}`)
+      lines.push(`Назначение: ${purpose}`)
     }
 
     if (message.trim()) {
@@ -306,10 +306,10 @@ function App() {
     setSavingProfileChangeRequest(true)
     try {
       await submitProfileChangeRequestAction(db, profile, payload)
-      showNotice('Р—Р°РїСЂРѕСЃ РЅР° РёР·РјРµРЅРµРЅРёРµ РґР°РЅРЅС‹С… РѕС‚РїСЂР°РІР»РµРЅ. РџРѕСЃР»Рµ РѕРґРѕР±СЂРµРЅРёСЏ РґР°РЅРЅС‹Рµ РѕР±РЅРѕРІСЏС‚СЃСЏ.')
+      showNotice('Запрос на изменение данных отправлен. После одобрения данные обновятся.')
       setSettingsOpen(false)
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РїСЂР°РІРёС‚СЊ Р·Р°РїСЂРѕСЃ РЅР° РёР·РјРµРЅРµРЅРёРµ РґР°РЅРЅС‹С….')
+      showNotice(error instanceof Error ? error.message : 'Не удалось отправить запрос на изменение данных.')
     } finally {
       setSavingProfileChangeRequest(false)
     }
@@ -321,7 +321,7 @@ function App() {
     try {
       await updateNotificationSettingsAction(db, profile.id, settings)
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕР±РЅРѕРІРёС‚СЊ РЅР°СЃС‚СЂРѕР№РєРё СѓРІРµРґРѕРјР»РµРЅРёР№.')
+      showNotice(error instanceof Error ? error.message : 'Не удалось обновить настройки уведомлений.')
     } finally {
       setSavingNotificationSettings(false)
     }
@@ -341,7 +341,7 @@ function App() {
       await sendChatMessageRequest(db, profile, text, replyTo, cleanMentionedUserIds)
       try {
         await enqueueBroadcastNotification(db, {
-          title: 'РќРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ РІ С‡Р°С‚Рµ',
+          title: 'Новое сообщение в чате',
           body: `${profile.fullName}: ${text.trim()}`,
           destination: 'chat',
           category: 'chat',
@@ -350,18 +350,18 @@ function App() {
 
         if (cleanMentionedUserIds.length > 0) {
           await enqueueTargetedNotification(db, {
-            title: 'Р’Р°СЃ РѕС‚РјРµС‚РёР»Рё РІ С‡Р°С‚Рµ',
-            body: `${profile.fullName} СѓРїРѕРјСЏРЅСѓР» РІР°СЃ: ${text.trim()}`,
+            title: 'Вас отметили в чате',
+            body: `${profile.fullName} упомянул вас: ${text.trim()}`,
             destination: 'chat',
             category: 'mention',
             targetUserIds: cleanMentionedUserIds,
           })
         }
       } catch {
-        showNotice('РЎРѕРѕР±С‰РµРЅРёРµ РѕС‚РїСЂР°РІР»РµРЅРѕ, РЅРѕ push-СѓРІРµРґРѕРјР»РµРЅРёРµ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Сообщение отправлено, но push-уведомление пока не поставлено в очередь.')
       }
     } catch {
-      showNotice('РЎРѕРѕР±С‰РµРЅРёРµ РїРѕРєР° РЅРµ РѕС‚РїСЂР°РІРёР»РѕСЃСЊ. РџСЂРѕРІРµСЂСЊС‚Рµ РёРЅС‚РµСЂРЅРµС‚ Рё РїРѕРїСЂРѕР±СѓР№С‚Рµ РµС‰Рµ СЂР°Р·.')
+      showNotice('Сообщение пока не отправилось. Проверьте интернет и попробуйте еще раз.')
       throw new Error('send-failed')
     }
   }
@@ -378,7 +378,7 @@ function App() {
 
   const removeChatMessage = async (message: ChatMessage) => {
     if (!db) return
-    if (!window.confirm('РЈРґР°Р»РёС‚СЊ СЌС‚Рѕ СЃРѕРѕР±С‰РµРЅРёРµ?')) return
+    if (!window.confirm('Удалить это сообщение?')) return
     await removeChatMessageRequest(db, message.id)
   }
 
@@ -397,9 +397,9 @@ function App() {
 
     try {
       await navigator.clipboard.writeText(value)
-      showNotice(`РЎРєРѕРїРёСЂРѕРІР°РЅРѕ: ${label}`)
+      showNotice(`Скопировано: ${label}`)
     } catch {
-      showNotice('РќРµ СѓРґР°Р»РѕСЃСЊ СЃРєРѕРїРёСЂРѕРІР°С‚СЊ. РџРѕРїСЂРѕР±СѓР№С‚Рµ РµС‰Рµ СЂР°Р·.')
+      showNotice('Не удалось скопировать. Попробуйте еще раз.')
     }
   }
 
@@ -413,9 +413,9 @@ function App() {
 
     try {
       await navigator.clipboard.writeText(payload)
-      showNotice('Р’СЃРµ СЂРµРєРІРёР·РёС‚С‹ СЃРєРѕРїРёСЂРѕРІР°РЅС‹')
+      showNotice('Все реквизиты скопированы')
     } catch {
-      showNotice('РќРµ СѓРґР°Р»РѕСЃСЊ СЃРєРѕРїРёСЂРѕРІР°С‚СЊ СЂРµРєРІРёР·РёС‚С‹')
+      showNotice('Не удалось скопировать реквизиты')
     }
   }
 
@@ -426,19 +426,19 @@ function App() {
       await createPaymentRequestRequest(db, profile, amount, selectedEvents, purpose)
       try {
         await enqueueTargetedNotification(db, {
-          title: 'РќРѕРІР°СЏ Р·Р°СЏРІРєР° РЅР° РѕРїР»Р°С‚Сѓ',
-          body: `${profile.fullName}: ${amount} в‚Ѕ`,
+          title: 'Новая заявка на оплату',
+          body: `${profile.fullName}: ${amount} ₽`,
           destination: 'owners',
           category: 'payments',
           targetUserIds: staffUserIds,
         })
       } catch {
-        showNotice('Р—Р°СЏРІРєР° РЅР° РѕРїР»Р°С‚Сѓ РѕС‚РїСЂР°РІР»РµРЅР°, РЅРѕ СѓРІРµРґРѕРјР»РµРЅРёРµ staff РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Заявка на оплату отправлена, но уведомление staff пока не поставлено в очередь.')
         return
       }
-      showNotice('Р—Р°СЏРІРєР° РЅР° РѕРїР»Р°С‚Сѓ РѕС‚РїСЂР°РІР»РµРЅР°')
+      showNotice('Заявка на оплату отправлена')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РїСЂР°РІРёС‚СЊ Р·Р°СЏРІРєСѓ РЅР° РѕРїР»Р°С‚Сѓ')
+      showNotice(error instanceof Error ? error.message : 'Не удалось отправить заявку на оплату')
     }
   }
 
@@ -458,9 +458,9 @@ function App() {
 
     try {
       await savePaymentConfigRequest(db, config)
-      showNotice('Р РµРєРІРёР·РёС‚С‹ СЃРѕС…СЂР°РЅРµРЅС‹')
+      showNotice('Реквизиты сохранены')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ СЂРµРєРІРёР·РёС‚С‹')
+      showNotice(error instanceof Error ? error.message : 'Не удалось сохранить реквизиты')
       throw error
     }
   }
@@ -469,9 +469,9 @@ function App() {
     if (!db || !profile) return
     try {
       await setUserBalanceAction(db, profile, user, newBalance)
-      showNotice('Р‘Р°Р»Р°РЅСЃ РёР·РјРµРЅРµРЅ')
+      showNotice('Баланс изменен')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РёР·РјРµРЅРёС‚СЊ Р±Р°Р»Р°РЅСЃ')
+      showNotice(error instanceof Error ? error.message : 'Не удалось изменить баланс')
     }
   }
 
@@ -479,21 +479,21 @@ function App() {
     if (!db || !profile) return
     try {
       await setUserRoleAction(db, profile, user, nextRole)
-      showNotice(nextRole === 'MODERATOR' ? 'РњРѕРґРµСЂР°С‚РѕСЂ РЅР°Р·РЅР°С‡РµРЅ' : 'Р РѕР»СЊ РјРѕРґРµСЂР°С‚РѕСЂР° СЃРЅСЏС‚Р°')
+      showNotice(nextRole === 'MODERATOR' ? 'Модератор назначен' : 'Роль модератора снята')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РёР·РјРµРЅРёС‚СЊ СЂРѕР»СЊ')
+      showNotice(error instanceof Error ? error.message : 'Не удалось изменить роль')
     }
   }
 
   const deleteUser = async (user: RemoteUser) => {
     if (!db || !profile) return
-    if (!window.confirm(`РЈРґР°Р»РёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ ${user.fullName}?`)) return
-    if (!window.confirm('РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РїРѕС‚РµСЂСЏРµС‚ РґРѕСЃС‚СѓРї Рє РїСЂРёР»РѕР¶РµРЅРёСЋ Рё РІРµР±-РІРµСЂСЃРёРё. РџСЂРѕРґРѕР»Р¶РёС‚СЊ?')) return
+    if (!window.confirm(`Удалить пользователя ${user.fullName}?`)) return
+    if (!window.confirm('Пользователь потеряет доступ к приложению и веб-версии. Продолжить?')) return
     try {
       await deleteUserRecord(db, profile, user)
-      showNotice('РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ СѓРґР°Р»РµРЅ')
+      showNotice('Пользователь удален')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ')
+      showNotice(error instanceof Error ? error.message : 'Не удалось удалить пользователя')
     }
   }
 
@@ -503,22 +503,22 @@ function App() {
       await approveRegistrationRequestAction(db, profile, request)
       try {
         await enqueueTargetedNotification(db, {
-          title: request.requestType === 'PROFILE_UPDATE' ? 'Изменение данных одобрено' : 'Регистрация одобрена',
+          title: request.requestType === 'PROFILE_UPDATE' ? '��������� ������ ��������' : '����������� ��������',
           body:
             request.requestType === 'PROFILE_UPDATE'
-              ? 'Ваши данные обновлены после проверки модератором.'
-              : 'Ваша заявка одобрена. Теперь можно войти в систему.',
+              ? '���� ������ ��������� ����� �������� �����������.'
+              : '���� ������ ��������. ������ ����� ����� � �������.',
           destination: 'auth',
           category: 'registration',
           targetUserIds: [request.id],
         })
       } catch {
-        showNotice('Заявка одобрена, но уведомление пользователю пока не поставлено в очередь.')
+        showNotice('������ ��������, �� ����������� ������������ ���� �� ���������� � �������.')
         return
       }
-      showNotice(request.requestType === 'PROFILE_UPDATE' ? 'Изменение данных одобрено' : 'Регистрация одобрена')
+      showNotice(request.requestType === 'PROFILE_UPDATE' ? '��������� ������ ��������' : '����������� ��������')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Не удалось одобрить заявку')
+      showNotice(error instanceof Error ? error.message : '�� ������� �������� ������')
     }
   }
 
@@ -528,25 +528,25 @@ function App() {
       await rejectRegistrationRequestAction(db, profile, request, reason)
       try {
         await enqueueTargetedNotification(db, {
-          title: request.requestType === 'PROFILE_UPDATE' ? 'Изменение данных отклонено' : 'Регистрация отклонена',
+          title: request.requestType === 'PROFILE_UPDATE' ? '��������� ������ ���������' : '����������� ���������',
           body: reason.trim()
             ? request.requestType === 'PROFILE_UPDATE'
-              ? `Заявка на изменение данных отклонена. Причина: ${reason.trim()}`
-              : `Ваша заявка отклонена. Причина: ${reason.trim()}`
+              ? `������ �� ��������� ������ ���������. �������: ${reason.trim()}`
+              : `���� ������ ���������. �������: ${reason.trim()}`
             : request.requestType === 'PROFILE_UPDATE'
-              ? 'Заявка на изменение данных отклонена.'
-              : 'Ваша заявка отклонена. Подробности можно уточнить у администрации.',
+              ? '������ �� ��������� ������ ���������.'
+              : '���� ������ ���������. ����������� ����� �������� � �������������.',
           destination: 'auth',
           category: 'registration',
           targetUserIds: [request.id],
         })
       } catch {
-        showNotice('Заявка отклонена, но уведомление пользователю пока не поставлено в очередь.')
+        showNotice('������ ���������, �� ����������� ������������ ���� �� ���������� � �������.')
         return
       }
-      showNotice(request.requestType === 'PROFILE_UPDATE' ? 'Изменение данных отклонено' : 'Регистрация отклонена')
+      showNotice(request.requestType === 'PROFILE_UPDATE' ? '��������� ������ ���������' : '����������� ���������')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Не удалось отклонить заявку')
+      showNotice(error instanceof Error ? error.message : '�� ������� ��������� ������')
     }
   }
 
@@ -561,18 +561,18 @@ function App() {
 
       const notificationTitle =
         payload.type === 'CHARGE'
-          ? 'РЎР±РѕСЂ СЃСЂРµРґСЃС‚РІ'
+          ? 'Сбор средств'
           : payload.type === 'EXPENSE'
-            ? 'РћРїР»Р°С‚Р°'
-            : 'РЈРІРµРґРѕРјР»РµРЅРёРµ'
+            ? 'Оплата'
+            : 'Уведомление'
 
       const notificationMessage =
         payload.message.trim() ||
         (payload.type === 'CHARGE'
-          ? 'РћС‚РєСЂС‹С‚ РЅРѕРІС‹Р№ СЃР±РѕСЂ СЃСЂРµРґСЃС‚РІ.'
+          ? 'Открыт новый сбор средств.'
           : payload.type === 'EXPENSE'
-            ? 'РћРїСѓР±Р»РёРєРѕРІР°РЅР° РЅРѕРІР°СЏ РѕРїР»Р°С‚Р° РёР· РѕР±С‰РµР№ РєР°СЃСЃС‹.'
-            : 'РћРїСѓР±Р»РёРєРѕРІР°РЅРѕ РЅРѕРІРѕРµ СѓРІРµРґРѕРјР»РµРЅРёРµ.')
+            ? 'Опубликована новая оплата из общей кассы.'
+            : 'Опубликовано новое уведомление.')
 
       try {
         await enqueueBroadcastNotification(db, {
@@ -601,27 +601,27 @@ function App() {
       }
 
       if (!pushQueued && !emailQueued) {
-        showNotice('РЎРѕР±С‹С‚РёРµ СЃРѕР·РґР°РЅРѕ, РЅРѕ push Рё РїРёСЃСЊРјРѕ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅС‹ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Событие создано, но push и письмо пока не поставлены в очередь.')
         return
       }
       if (!pushQueued) {
-        showNotice('РЎРѕР±С‹С‚РёРµ СЃРѕР·РґР°РЅРѕ, РЅРѕ push-СѓРІРµРґРѕРјР»РµРЅРёРµ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Событие создано, но push-уведомление пока не поставлено в очередь.')
         return
       }
       if (!emailQueued) {
-        showNotice('РЎРѕР±С‹С‚РёРµ СЃРѕР·РґР°РЅРѕ, РЅРѕ РїРёСЃСЊРјРѕ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Событие создано, но письмо пока не поставлено в очередь.')
         return
       }
 
       showNotice(
         payload.type === 'CHARGE'
-          ? 'РЎР±РѕСЂ СЃРѕР·РґР°РЅ'
+          ? 'Сбор создан'
           : payload.type === 'EXPENSE'
-            ? 'РћРїР»Р°С‚Р° РёР· РєР°СЃСЃС‹ СЃРѕР·РґР°РЅР°'
-            : 'РЈРІРµРґРѕРјР»РµРЅРёРµ РѕРїСѓР±Р»РёРєРѕРІР°РЅРѕ',
+            ? 'Оплата из кассы создана'
+            : 'Уведомление опубликовано',
       )
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ СЃРѕР±С‹С‚РёРµ')
+      showNotice(error instanceof Error ? error.message : 'Не удалось создать событие')
       throw error
     }
   }
@@ -630,9 +630,9 @@ function App() {
     if (!db || !profile) return
     try {
       await updateEventRequest(db, profile, event, payload)
-      showNotice('РЎРѕР±С‹С‚РёРµ РѕР±РЅРѕРІР»РµРЅРѕ')
+      showNotice('Событие обновлено')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕР±РЅРѕРІРёС‚СЊ СЃРѕР±С‹С‚РёРµ')
+      showNotice(error instanceof Error ? error.message : 'Не удалось обновить событие')
     }
   }
 
@@ -642,7 +642,7 @@ function App() {
     setPollSubmitting(true)
     try {
       const pollTitle = pollDraft.title.trim()
-      const pollMessage = pollDraft.message.trim() || 'РћРїСѓР±Р»РёРєРѕРІР°РЅ РЅРѕРІС‹Р№ РѕРїСЂРѕСЃ. РћС‚РєСЂРѕР№С‚Рµ MalinkiEco, С‡С‚РѕР±С‹ РїСЂРѕРіРѕР»РѕСЃРѕРІР°С‚СЊ.'
+      const pollMessage = pollDraft.message.trim() || 'Опубликован новый опрос. Откройте MalinkiEco, чтобы проголосовать.'
 
       setPollDraft(await submitPollRequest(db, profile, pollDraft))
 
@@ -651,7 +651,7 @@ function App() {
 
       try {
         await enqueueBroadcastNotification(db, {
-          title: 'РќРѕРІС‹Р№ РѕРїСЂРѕСЃ',
+          title: 'Новый опрос',
           body: pollTitle,
           destination: 'polls',
           category: 'polls',
@@ -663,7 +663,7 @@ function App() {
 
       try {
         await enqueueBroadcastEventEmail({
-          subject: 'РќРѕРІС‹Р№ РѕРїСЂРѕСЃ',
+          subject: 'Новый опрос',
           title: pollTitle,
           message: pollMessage,
           destination: 'polls',
@@ -675,21 +675,21 @@ function App() {
       }
 
       if (!pushQueued && !emailQueued) {
-        showNotice('РћРїСЂРѕСЃ СЃРѕР·РґР°РЅ, РЅРѕ push Рё РїРёСЃСЊРјРѕ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅС‹ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Опрос создан, но push и письмо пока не поставлены в очередь.')
         return
       }
       if (!pushQueued) {
-        showNotice('РћРїСЂРѕСЃ СЃРѕР·РґР°РЅ, РЅРѕ push-СѓРІРµРґРѕРјР»РµРЅРёРµ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Опрос создан, но push-уведомление пока не поставлено в очередь.')
         return
       }
       if (!emailQueued) {
-        showNotice('РћРїСЂРѕСЃ СЃРѕР·РґР°РЅ, РЅРѕ РїРёСЃСЊРјРѕ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Опрос создан, но письмо пока не поставлено в очередь.')
         return
       }
 
-      showNotice('РћРїСЂРѕСЃ СЃРѕР·РґР°РЅ')
+      showNotice('Опрос создан')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ РѕРїСЂРѕСЃ')
+      showNotice(error instanceof Error ? error.message : 'Не удалось создать опрос')
     } finally {
       setPollSubmitting(false)
     }
@@ -706,7 +706,7 @@ function App() {
 
       try {
         await enqueueBroadcastNotification(db, {
-          title: 'РћРїСЂРѕСЃ Р·Р°РєСЂС‹С‚',
+          title: 'Опрос закрыт',
           body: poll.title,
           destination: 'polls',
           category: 'polls',
@@ -718,9 +718,9 @@ function App() {
 
       try {
         await enqueueBroadcastEventEmail({
-          subject: 'РћРїСЂРѕСЃ Р·Р°РєСЂС‹С‚',
+          subject: 'Опрос закрыт',
           title: poll.title,
-          message: poll.message.trim() || 'РћРїСЂРѕСЃ Р·Р°РІРµСЂС€РµРЅ. РћС‚РєСЂРѕР№С‚Рµ MalinkiEco, С‡С‚РѕР±С‹ РѕР·РЅР°РєРѕРјРёС‚СЊСЃСЏ СЃ РёС‚РѕРіР°РјРё.',
+          message: poll.message.trim() || 'Опрос завершен. Откройте MalinkiEco, чтобы ознакомиться с итогами.',
           destination: 'polls',
           category: 'polls',
           excludedUserIds: [profile.id],
@@ -730,21 +730,21 @@ function App() {
       }
 
       if (!pushQueued && !emailQueued) {
-        showNotice('РћРїСЂРѕСЃ Р·Р°РєСЂС‹С‚, РЅРѕ push Рё РїРёСЃСЊРјРѕ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅС‹ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Опрос закрыт, но push и письмо пока не поставлены в очередь.')
         return
       }
       if (!pushQueued) {
-        showNotice('РћРїСЂРѕСЃ Р·Р°РєСЂС‹С‚, РЅРѕ push-СѓРІРµРґРѕРјР»РµРЅРёРµ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Опрос закрыт, но push-уведомление пока не поставлено в очередь.')
         return
       }
       if (!emailQueued) {
-        showNotice('РћРїСЂРѕСЃ Р·Р°РєСЂС‹С‚, РЅРѕ РїРёСЃСЊРјРѕ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Опрос закрыт, но письмо пока не поставлено в очередь.')
         return
       }
 
-      showNotice('РћРїСЂРѕСЃ Р·Р°РєСЂС‹С‚')
+      showNotice('Опрос закрыт')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РєСЂС‹С‚СЊ РѕРїСЂРѕСЃ')
+      showNotice(error instanceof Error ? error.message : 'Не удалось закрыть опрос')
     }
   }
 
@@ -759,7 +759,7 @@ function App() {
 
       try {
         await enqueueBroadcastNotification(db, {
-          title: 'РЎР±РѕСЂ Р·Р°РєСЂС‹С‚',
+          title: 'Сбор закрыт',
           body: event.title,
           destination: 'events',
           category: 'events',
@@ -771,9 +771,9 @@ function App() {
 
       try {
         await enqueueBroadcastEventEmail({
-          subject: 'РЎР±РѕСЂ Р·Р°РєСЂС‹С‚',
+          subject: 'Сбор закрыт',
           title: event.title,
-          message: event.message.trim() || 'РЎР±РѕСЂ Р·Р°РІРµСЂС€РµРЅ. РћС‚РєСЂРѕР№С‚Рµ MalinkiEco, С‡С‚РѕР±С‹ РѕР·РЅР°РєРѕРјРёС‚СЊСЃСЏ СЃ РґРµС‚Р°Р»СЏРјРё.',
+          message: event.message.trim() || 'Сбор завершен. Откройте MalinkiEco, чтобы ознакомиться с деталями.',
           amount: event.amount,
           destination: 'events',
           category: 'events',
@@ -784,21 +784,21 @@ function App() {
       }
 
       if (!pushQueued && !emailQueued) {
-        showNotice('РЎР±РѕСЂ Р·Р°РєСЂС‹С‚, РЅРѕ push Рё РїРёСЃСЊРјРѕ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅС‹ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Сбор закрыт, но push и письмо пока не поставлены в очередь.')
         return
       }
       if (!pushQueued) {
-        showNotice('РЎР±РѕСЂ Р·Р°РєСЂС‹С‚, РЅРѕ push-СѓРІРµРґРѕРјР»РµРЅРёРµ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Сбор закрыт, но push-уведомление пока не поставлено в очередь.')
         return
       }
       if (!emailQueued) {
-        showNotice('РЎР±РѕСЂ Р·Р°РєСЂС‹С‚, РЅРѕ РїРёСЃСЊРјРѕ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Сбор закрыт, но письмо пока не поставлено в очередь.')
         return
       }
 
-      showNotice('РЎР±РѕСЂ Р·Р°РєСЂС‹С‚')
+      showNotice('Сбор закрыт')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РєСЂС‹С‚СЊ СЃР±РѕСЂ')
+      showNotice(error instanceof Error ? error.message : 'Не удалось закрыть сбор')
     }
   }
 
@@ -811,15 +811,15 @@ function App() {
       let pushQueued = true
       let emailQueued = true
 
-      const paymentTitle = request.eventTitle || request.purpose || 'РџР»Р°С‚РµР¶ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ'
+      const paymentTitle = request.eventTitle || request.purpose || 'Платеж пользователя'
       const paymentPurpose = request.eventTitle || request.purpose || undefined
       const paymentMessage = paymentPurpose
-        ? `Р’Р°С€ РїР»Р°С‚РµР¶ РЅР° СЃСѓРјРјСѓ ${request.amount} в‚Ѕ РїРѕРґС‚РІРµСЂР¶РґРµРЅ. РќР°Р·РЅР°С‡РµРЅРёРµ: ${paymentPurpose}.`
-        : `Р’Р°С€ РїР»Р°С‚РµР¶ РЅР° СЃСѓРјРјСѓ ${request.amount} в‚Ѕ РїРѕРґС‚РІРµСЂР¶РґРµРЅ.`
+        ? `Ваш платеж на сумму ${request.amount} ₽ подтвержден. Назначение: ${paymentPurpose}.`
+        : `Ваш платеж на сумму ${request.amount} ₽ подтвержден.`
 
       try {
         await enqueueTargetedNotification(db, {
-          title: 'РћРїР»Р°С‚Р° РїРѕРґС‚РІРµСЂР¶РґРµРЅР°',
+          title: 'Оплата подтверждена',
           body: paymentMessage,
           destination: 'payments',
           category: 'payments',
@@ -831,7 +831,7 @@ function App() {
 
       try {
         await enqueueTargetedEventEmail({
-          subject: 'РћРїР»Р°С‚Р° РїРѕРґС‚РІРµСЂР¶РґРµРЅР°',
+          subject: 'Оплата подтверждена',
           title: paymentTitle,
           message: paymentMessage,
           amount: request.amount,
@@ -845,21 +845,21 @@ function App() {
       }
 
       if (!pushQueued && !emailQueued) {
-        showNotice('РћРїР»Р°С‚Р° РїРѕРґС‚РІРµСЂР¶РґРµРЅР°, РЅРѕ push Рё РїРёСЃСЊРјРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅС‹ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Оплата подтверждена, но push и письмо пользователю пока не поставлены в очередь.')
         return
       }
       if (!pushQueued) {
-        showNotice('РћРїР»Р°С‚Р° РїРѕРґС‚РІРµСЂР¶РґРµРЅР°, РЅРѕ push-СѓРІРµРґРѕРјР»РµРЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Оплата подтверждена, но push-уведомление пользователю пока не поставлено в очередь.')
         return
       }
       if (!emailQueued) {
-        showNotice('РћРїР»Р°С‚Р° РїРѕРґС‚РІРµСЂР¶РґРµРЅР°, РЅРѕ РїРёСЃСЊРјРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Оплата подтверждена, но письмо пользователю пока не поставлено в очередь.')
         return
       }
 
-      showNotice('РћРїР»Р°С‚Р° РїРѕРґС‚РІРµСЂР¶РґРµРЅР°')
+      showNotice('Оплата подтверждена')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕРґС‚РІРµСЂРґРёС‚СЊ РѕРїР»Р°С‚Сѓ')
+      showNotice(error instanceof Error ? error.message : 'Не удалось подтвердить оплату')
     }
   }
 
@@ -872,15 +872,15 @@ function App() {
       let pushQueued = true
       let emailQueued = true
 
-      const paymentTitle = request.eventTitle || request.purpose || 'РџР»Р°С‚РµР¶ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ'
+      const paymentTitle = request.eventTitle || request.purpose || 'Платеж пользователя'
       const paymentPurpose = request.eventTitle || request.purpose || undefined
       const paymentMessage = reason.trim()
-        ? `Р’Р°С€ РїР»Р°С‚РµР¶ РЅР° СЃСѓРјРјСѓ ${request.amount} в‚Ѕ РѕС‚РєР»РѕРЅРµРЅ. РџСЂРёС‡РёРЅР°: ${reason.trim()}.`
-        : `Р’Р°С€ РїР»Р°С‚РµР¶ РЅР° СЃСѓРјРјСѓ ${request.amount} в‚Ѕ РѕС‚РєР»РѕРЅРµРЅ. РЈС‚РѕС‡РЅРёС‚Рµ РґРµС‚Р°Р»Рё Сѓ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР° РёР»Рё РјРѕРґРµСЂР°С‚РѕСЂР°.`
+        ? `Ваш платеж на сумму ${request.amount} ₽ отклонен. Причина: ${reason.trim()}.`
+        : `Ваш платеж на сумму ${request.amount} ₽ отклонен. Уточните детали у администратора или модератора.`
 
       try {
         await enqueueTargetedNotification(db, {
-          title: 'РћРїР»Р°С‚Р° РѕС‚РєР»РѕРЅРµРЅР°',
+          title: 'Оплата отклонена',
           body: paymentMessage,
           destination: 'payments',
           category: 'payments',
@@ -892,7 +892,7 @@ function App() {
 
       try {
         await enqueueTargetedEventEmail({
-          subject: 'РћРїР»Р°С‚Р° РѕС‚РєР»РѕРЅРµРЅР°',
+          subject: 'Оплата отклонена',
           title: paymentTitle,
           message: paymentMessage,
           amount: request.amount,
@@ -906,21 +906,21 @@ function App() {
       }
 
       if (!pushQueued && !emailQueued) {
-        showNotice('РћРїР»Р°С‚Р° РѕС‚РєР»РѕРЅРµРЅР°, РЅРѕ push Рё РїРёСЃСЊРјРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅС‹ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Оплата отклонена, но push и письмо пользователю пока не поставлены в очередь.')
         return
       }
       if (!pushQueued) {
-        showNotice('РћРїР»Р°С‚Р° РѕС‚РєР»РѕРЅРµРЅР°, РЅРѕ push-СѓРІРµРґРѕРјР»РµРЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Оплата отклонена, но push-уведомление пользователю пока не поставлено в очередь.')
         return
       }
       if (!emailQueued) {
-        showNotice('РћРїР»Р°С‚Р° РѕС‚РєР»РѕРЅРµРЅР°, РЅРѕ РїРёСЃСЊРјРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ РїРѕРєР° РЅРµ РїРѕСЃС‚Р°РІР»РµРЅРѕ РІ РѕС‡РµСЂРµРґСЊ.')
+        showNotice('Оплата отклонена, но письмо пользователю пока не поставлено в очередь.')
         return
       }
 
-      showNotice('РћРїР»Р°С‚Р° РѕС‚РєР»РѕРЅРµРЅР°')
+      showNotice('Оплата отклонена')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєР»РѕРЅРёС‚СЊ РѕРїР»Р°С‚Сѓ')
+      showNotice(error instanceof Error ? error.message : 'Не удалось отклонить оплату')
     }
   }
 
@@ -929,7 +929,7 @@ function App() {
   }
 
   if (appGate.loading || authLoading || (authUser ? profileLoading : false)) {
-    return <SplashScreen message="РџРѕРґРєР»СЋС‡Р°РµРј РІРµР±-РєР°Р±РёРЅРµС‚ РїРѕСЃРµР»РєР°..." />
+    return <SplashScreen message="Подключаем веб-кабинет поселка..." />
   }
 
   if (maintenanceLocked) {
@@ -978,15 +978,15 @@ function App() {
         <div className="topbar-actions">
           <div className={`balance-chip ${balanceTone(profile.balance)}`}>
             <span>{balanceLabel(profile.balance)}</span>
-            <strong>{profile.balance.toLocaleString('ru-RU')} в‚Ѕ</strong>
+            <strong>{profile.balance.toLocaleString('ru-RU')} ₽</strong>
           </div>
           <button className="ghost-button" type="button" onClick={() => setSettingsOpen(true)}>
-            Настройки
+            ���������
           </button>
         </div>
       </header>
 
-      <nav className="tab-bar" aria-label="РќР°РІРёРіР°С†РёСЏ">
+      <nav className="tab-bar" aria-label="Навигация">
         {visibleTabs.map((tab) => (
           <button
             key={tab}
@@ -995,7 +995,7 @@ function App() {
           >
             <span>{TAB_LABELS[tab]}</span>
             {tab === 'owners' && isStaff && pendingOwnersItemsCount > 0 && (
-              <span className="tab-badge" aria-label={`РќРѕРІС‹С… Р·Р°СЏРІРѕРє: ${pendingOwnersItemsCount}`}>
+              <span className="tab-badge" aria-label={`Новых заявок: ${pendingOwnersItemsCount}`}>
                 {pendingOwnersItemsCount}
               </span>
             )}
@@ -1007,7 +1007,7 @@ function App() {
         <div className="notice-bar" role="status">
           <span>{pageNotice}</span>
           <button className="notice-close" type="button" onClick={clearNotice}>
-            Р—Р°РєСЂС‹С‚СЊ
+            Закрыть
           </button>
         </div>
       )}
@@ -1115,4 +1115,5 @@ function App() {
 }
 
 export default App
+
 
