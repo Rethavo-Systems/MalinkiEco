@@ -342,6 +342,84 @@
   gap: 16px;
 }
 
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(4, 12, 22, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.settings-panel {
+  width: min(640px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(9, 21, 36, 0.96);
+  box-shadow: 0 26px 70px rgba(1, 8, 19, 0.45);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.settings-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-panel__header h3 {
+  margin: 0;
+}
+
+.settings-panel__section {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.settings-panel__section h4 {
+  margin: 0;
+}
+
+.settings-panel__section p {
+  margin: 0;
+  color: rgba(224, 234, 245, 0.78);
+}
+
+.settings-panel__section label {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-panel__section input[type='text'],
+.settings-panel__section input:not([type]) {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(6, 14, 25, 0.82);
+  color: #f8fbff;
+  padding: 10px 12px;
+}
+
+.settings-toggles {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .brand-pill {
   width: 52px;
   height: 52px;
@@ -1049,6 +1127,12 @@ button.payment-form-grid__wide {
 
 .poll-option.is-selected {
   background: linear-gradient(135deg, rgba(255, 110, 148, 0.28), rgba(255, 143, 115, 0.2));
+}
+
+.poll-results {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
 }
 
 .balance-card {

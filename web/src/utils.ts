@@ -1,10 +1,23 @@
-import type { CommunityEvent, PaymentTransferConfig, RemoteUser, Role } from './types'
+import { DEFAULT_NOTIFICATION_SETTINGS } from './constants'
+import type { CommunityEvent, NotificationSettings, PaymentTransferConfig, RemoteUser, Role } from './types'
 
 export function extractCreatedAt(createdAt: unknown, fallback: unknown): number {
   if (createdAt && typeof createdAt === 'object' && 'seconds' in createdAt) {
     return Number((createdAt as { seconds: number }).seconds) * 1000
   }
   return Number(fallback ?? 0)
+}
+
+export function normalizeNotificationSettings(data: unknown): NotificationSettings {
+  const raw = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
+  return {
+    events: raw.events === undefined ? DEFAULT_NOTIFICATION_SETTINGS.events : Boolean(raw.events),
+    chat: raw.chat === undefined ? DEFAULT_NOTIFICATION_SETTINGS.chat : Boolean(raw.chat),
+    mentions: raw.mentions === undefined ? DEFAULT_NOTIFICATION_SETTINGS.mentions : Boolean(raw.mentions),
+    polls: raw.polls === undefined ? DEFAULT_NOTIFICATION_SETTINGS.polls : Boolean(raw.polls),
+    payments: raw.payments === undefined ? DEFAULT_NOTIFICATION_SETTINGS.payments : Boolean(raw.payments),
+    system: raw.system === undefined ? DEFAULT_NOTIFICATION_SETTINGS.system : Boolean(raw.system),
+  }
 }
 
 export function toRemoteUser(id: string, data: Record<string, unknown>): RemoteUser | null {
@@ -22,6 +35,7 @@ export function toRemoteUser(id: string, data: Record<string, unknown>): RemoteU
     role,
     balance: Number(data.balance ?? 0),
     lastChatReadAt: Number(data.lastChatReadAt ?? 0),
+    notificationSettings: normalizeNotificationSettings(data.notificationSettings),
     phone: String(data.phone ?? ''),
     login: String(data.login ?? ''),
   }

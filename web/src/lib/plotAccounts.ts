@@ -1,4 +1,5 @@
 import type { RemoteUser } from '../types'
+import { DEFAULT_NOTIFICATION_SETTINGS } from '../constants'
 
 export const PLOT_COUNT = 35
 export const PLOT_OPTIONS = Array.from({ length: PLOT_COUNT }, (_, index) => `Участок ${index + 1}`)
@@ -140,6 +141,7 @@ export function buildOwnersDirectory(users: RemoteUser[], plotBalances: Map<stri
       role: 'USER',
       balance: sumBalanceForPlots(plotBalances, [plot], 0),
       lastChatReadAt: 0,
+      notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
       phone: '',
       login: '',
       isPlaceholder: true,

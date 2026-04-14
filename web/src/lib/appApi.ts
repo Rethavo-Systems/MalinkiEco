@@ -18,13 +18,14 @@ import type {
   ChatMessage,
   CommunityEvent,
   EventType,
+  NotificationSettings,
   PollDraft,
   RegistrationRequest,
   RemoteUser,
   Role,
 } from '../types'
-import { formatPlots } from '../utils'
-import { INITIAL_POLL_DRAFT } from '../constants'
+import { formatPlots, normalizeNotificationSettings, normalizeRussianPhone } from '../utils'
+import { DEFAULT_NOTIFICATION_SETTINGS, INITIAL_POLL_DRAFT } from '../constants'
 import {
   PLOTS_COLLECTION,
   PLOT_OPTIONS,
@@ -43,6 +44,11 @@ type EventDraft = {
   message: string
   type: EventType
   amount: number
+}
+
+type EditableEventDraft = {
+  title: string
+  message: string
 }
 
 type NotificationJobPayload = {
@@ -64,6 +70,13 @@ type NotificationQueueOptions = {
 
 const NOTIFICATION_JOBS_COLLECTION = 'notification_jobs'
 const NOTIFICATION_SIGNALS_PATH = 'notification_signals'
+
+function normalizeProfileUpdatePayload(payload: { fullName: string; phone: string }) {
+  return {
+    fullName: payload.fullName.trim(),
+    phone: normalizeRussianPhone(payload.phone),
+  }
+}
 
 async function signalNotificationJob(
   signalDb: Database,
@@ -262,6 +275,63 @@ export async function ensurePlotAccounts(db: Firestore) {
   return plotBalances
 }
 
+export async function updateNotificationSettings(
+  db: Firestore,
+  userId: string,
+  settings: Partial<NotificationSettings>,
+) {
+  const nextSettings = normalizeNotificationSettings({
+    ...DEFAULT_NOTIFICATION_SETTINGS,
+    ...settings,
+  })
+
+  await updateDoc(doc(db, 'users', userId), {
+    notificationSettings: nextSettings,
+  })
+
+  return nextSettings
+}
+
+export async function submitProfileChangeRequest(
+  db: Firestore,
+  profile: RemoteUser,
+  payload: { fullName: string; phone: string },
+) {
+  const normalized = normalizeProfileUpdatePayload(payload)
+  if (!normalized.fullName) {
+    throw new Error('Укажите имя пользователя.')
+  }
+  if (normalized.phone.length !== 11) {
+    throw new Error('Укажите корректный номер телефона.')
+  }
+  if (normalized.fullName === profile.fullName.trim() && normalized.phone === normalizeRussianPhone(profile.phone ?? '')) {
+    throw new Error('Изменений пока нет. Исправьте имя или телефон.')
+  }
+
+  await setDoc(
+    doc(db, 'registration_requests', profile.id),
+    {
+      login: profile.login ?? '',
+      authEmail: profile.email,
+      fullName: normalized.fullName,
+      phone: normalized.phone,
+      plots: profile.plots,
+      status: 'PENDING',
+      requestType: 'PROFILE_UPDATE',
+      currentFullName: profile.fullName,
+      currentPhone: normalizeRussianPhone(profile.phone ?? ''),
+      proposedFullName: normalized.fullName,
+      proposedPhone: normalized.phone,
+      reviewedById: '',
+      reviewedByName: '',
+      reviewReason: '',
+      createdAt: serverTimestamp(),
+      createdAtClient: Date.now(),
+    },
+    { merge: true },
+  )
+}
+
 function setPlotBalancesInBatch(
   db: Firestore,
   batch: ReturnType<typeof writeBatch>,
@@ -304,6 +374,42 @@ export async function approveRegistrationRequest(
   reviewer: RemoteUser,
   request: RegistrationRequest,
 ) {
+  if (request.requestType === 'PROFILE_UPDATE') {
+    const requestRef = doc(db, 'registration_requests', request.id)
+    const userRef = doc(db, 'users', request.id)
+    const nextFullName = (request.proposedFullName || request.fullName).trim()
+    const nextPhone = normalizeRussianPhone(request.proposedPhone || request.phone)
+
+    await runTransaction(db, async (transaction) => {
+      const requestSnapshot = await transaction.get(requestRef)
+      const status = String(requestSnapshot.data()?.status ?? '')
+      if (status !== 'PENDING') return
+
+      transaction.update(userRef, {
+        fullName: nextFullName,
+        phone: nextPhone,
+      })
+      transaction.update(requestRef, {
+        status: 'APPROVED',
+        reviewedById: reviewer.id,
+        reviewedByName: reviewer.fullName,
+        reviewReason: '',
+        reviewedAt: serverTimestamp(),
+      })
+    })
+
+    await createAuditLog(
+      db,
+      reviewer,
+      'Одобрено изменение профиля',
+      'Заявка на изменение имени и телефона одобрена.',
+      request.id,
+      request.currentFullName || request.fullName,
+      request.plots.join(', '),
+    )
+    return
+  }
+
   const plotBalances = await ensurePlotAccounts(db)
   const requestRef = doc(db, 'registration_requests', request.id)
   const userRef = doc(db, 'users', request.id)
@@ -324,6 +430,7 @@ export async function approveRegistrationRequest(
       role: 'USER',
       balance: initialBalance,
       lastChatReadAt: 0,
+      notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
     })
     transaction.update(requestRef, {
       status: 'APPROVED',
@@ -364,10 +471,14 @@ export async function rejectRegistrationRequest(
   await createAuditLog(
     db,
     reviewer,
-    'Отклонена регистрация',
+    request.requestType === 'PROFILE_UPDATE' ? 'Отклонено изменение профиля' : 'Отклонена регистрация',
     normalizedReason
-      ? `Заявка на регистрацию отклонена. Причина: ${normalizedReason}.`
-      : 'Заявка на регистрацию отклонена.',
+      ? request.requestType === 'PROFILE_UPDATE'
+        ? `Заявка на изменение данных отклонена. Причина: ${normalizedReason}.`
+        : `Заявка на регистрацию отклонена. Причина: ${normalizedReason}.`
+      : request.requestType === 'PROFILE_UPDATE'
+        ? 'Заявка на изменение данных отклонена.'
+        : 'Заявка на регистрацию отклонена.',
     request.id,
     request.fullName,
     request.plots.join(', '),
@@ -524,6 +635,7 @@ export async function createEvent(db: Firestore, creator: RemoteUser, draft: Eve
     type,
     amount,
     isClosed: false,
+    isAnonymous: false,
     pollOptions: [],
     pollVotes: {},
     voterIds: [],
@@ -591,6 +703,41 @@ export async function createEvent(db: Firestore, creator: RemoteUser, draft: Eve
   }
 }
 
+export async function updateEvent(
+  db: Firestore,
+  editor: RemoteUser,
+  event: CommunityEvent,
+  payload: EditableEventDraft,
+) {
+  if (editor.role !== 'ADMIN' && editor.role !== 'MODERATOR') {
+    throw new Error('Редактировать событие может только модератор или администратор.')
+  }
+
+  const nextTitle = payload.title.trim()
+  const nextMessage = payload.message.trim()
+  if (!nextTitle) {
+    throw new Error('Укажите заголовок события.')
+  }
+
+  await updateDoc(doc(db, 'events', event.id), {
+    title: nextTitle,
+    message: nextMessage,
+    editedById: editor.id,
+    editedByName: editor.fullName,
+    editedAtClient: Date.now(),
+  })
+
+  await createAuditLog(
+    db,
+    editor,
+    'Изменено событие',
+    `Событие "${event.title}" отредактировано.`,
+    '',
+    '',
+    '',
+  )
+}
+
 export async function closeCharge(db: Firestore, reviewer: RemoteUser, event: CommunityEvent) {
   if (event.type !== 'CHARGE' || event.isClosed) return
   if (reviewer.role !== 'ADMIN' && reviewer.role !== 'MODERATOR') {
@@ -628,6 +775,7 @@ export async function submitPoll(db: Firestore, profile: RemoteUser, pollDraft: 
     type: 'POLL',
     amount: 0,
     isClosed: false,
+    isAnonymous: Boolean(pollDraft.isAnonymous),
     pollOptions: options,
     pollVotes: options.reduce<Record<string, number>>((accumulator, option) => {
       accumulator[option] = 0

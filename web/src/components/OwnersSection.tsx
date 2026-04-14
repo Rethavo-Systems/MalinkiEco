@@ -1,10 +1,5 @@
 import { useState } from 'react'
-import type {
-  ManualPaymentRequest,
-  RegistrationRequest,
-  RemoteUser,
-  Role,
-} from '../types'
+import type { ManualPaymentRequest, RegistrationRequest, RemoteUser, Role } from '../types'
 import { formatRussianPhone } from '../utils'
 
 type OwnersSectionProps = {
@@ -52,6 +47,10 @@ function registrationStatusLabel(request: RegistrationRequest) {
     default:
       return request.status
   }
+}
+
+function requestTypeLabel(request: RegistrationRequest) {
+  return request.requestType === 'PROFILE_UPDATE' ? 'Запрос на изменение данных' : 'Заявка на регистрацию'
 }
 
 function ownerRoleLabel(owner: RemoteUser, roleLabel: (role: Role) => string) {
@@ -151,12 +150,12 @@ export function OwnersSection({
             <div className="poll-create-card__header">
               <div>
                 <h3 className="section-title-with-badge">
-                  <span>Заявки на регистрацию</span>
+                  <span>Заявки пользователей</span>
                   {pendingRegistrationRequestsCount > 0 && (
                     <span className="alert-badge">{pendingRegistrationRequestsCount}</span>
                   )}
                 </h3>
-                <p>Одобрение новых собственников и отклонение заявок.</p>
+                <p>Одобрение новых регистраций и запросов на изменение данных.</p>
               </div>
               <button className="ghost-button" type="button" onClick={() => setShowRegistrationRequests((value) => !value)}>
                 {showRegistrationRequests ? 'Свернуть' : 'Развернуть'}
@@ -166,7 +165,7 @@ export function OwnersSection({
             {showRegistrationRequests && (
               <div className="stack">
                 {registrationRequests.length === 0 ? (
-                  <div className="chat-empty-inline">Пока нет заявок на регистрацию.</div>
+                  <div className="chat-empty-inline">Пока нет заявок пользователей.</div>
                 ) : (
                   registrationRequests.map((request) => (
                     <article key={request.id} className="event-card">
@@ -174,10 +173,27 @@ export function OwnersSection({
                         <span className="event-badge">{registrationStatusLabel(request)}</span>
                         <span>{formatDateTime(request.createdAtClient)}</span>
                       </div>
-                      <h3>{request.fullName}</h3>
+                      <h3>{requestTypeLabel(request)}</h3>
                       <p>{request.authEmail || request.login}</p>
-                      <p>{request.plots.join(', ')}</p>
-                      {request.phone && <p>{formatRussianPhone(request.phone)}</p>}
+                      {request.requestType === 'PROFILE_UPDATE' ? (
+                        <div className="stack">
+                          <p>Текущие данные: {request.currentFullName || request.fullName}</p>
+                          {(request.currentPhone || request.phone) && (
+                            <p>Текущий телефон: {formatRussianPhone(request.currentPhone || request.phone)}</p>
+                          )}
+                          <p>Новые данные: {request.proposedFullName || request.fullName}</p>
+                          {(request.proposedPhone || request.phone) && (
+                            <p>Новый телефон: {formatRussianPhone(request.proposedPhone || request.phone)}</p>
+                          )}
+                          <p>{request.plots.join(', ')}</p>
+                        </div>
+                      ) : (
+                        <div className="stack">
+                          <p>{request.fullName}</p>
+                          <p>{request.plots.join(', ')}</p>
+                          {request.phone && <p>{formatRussianPhone(request.phone)}</p>}
+                        </div>
+                      )}
                       {request.reviewReason && <p>Причина: {request.reviewReason}</p>}
                       {request.status === 'PENDING' && (
                         <div className="chat-actions">

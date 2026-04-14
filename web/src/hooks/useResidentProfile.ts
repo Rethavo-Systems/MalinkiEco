@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { doc, onSnapshot } from 'firebase/firestore'
 import type { User } from 'firebase/auth'
 import { db, firebaseSetup } from '../lib/firebase'
-import type { RemoteUser, Role } from '../types'
+import type { RemoteUser } from '../types'
+import { toRemoteUser } from '../utils'
 
 type UseResidentProfileOptions = {
   authUser: User | null
@@ -28,17 +29,7 @@ export function useResidentProfile({ authUser, onMissingProfile }: UseResidentPr
         return
       }
 
-      const data = snapshot.data()
-      setProfile({
-        id: snapshot.id,
-        email: String(data.email ?? ''),
-        fullName: String(data.fullName ?? ''),
-        plotName: String(data.plotName ?? ''),
-        plots: Array.isArray(data.plots) ? data.plots.map(String).filter(Boolean) : [],
-        role: String(data.role ?? 'USER') as Role,
-        balance: Number(data.balance ?? 0),
-        lastChatReadAt: Number(data.lastChatReadAt ?? 0),
-      })
+      setProfile(toRemoteUser(snapshot.id, snapshot.data()) ?? null)
       setProfileLoading(false)
     })
   }, [authUser, onMissingProfile])

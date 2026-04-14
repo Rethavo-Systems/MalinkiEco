@@ -1,4 +1,13 @@
-import type { AuthFormState, PaymentTransferConfig, PollDraft, TabKey } from './types'
+import type { AuthFormState, NotificationSettings, PaymentTransferConfig, PollDraft, TabKey } from './types'
+
+export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  events: true,
+  chat: true,
+  mentions: true,
+  polls: true,
+  payments: true,
+  system: true,
+}
 
 export const EMPTY_PAYMENT_CONFIG: PaymentTransferConfig = {
   recipientName: '',
@@ -26,6 +35,7 @@ export const INITIAL_POLL_DRAFT: PollDraft = {
   title: '',
   message: '',
   options: '',
+  isAnonymous: false,
 }
 
 export const TAB_LABELS: Record<TabKey, string> = {

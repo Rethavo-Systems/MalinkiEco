@@ -30,6 +30,22 @@ service cloud.firestore {
         request.auth.uid == requestId &&
         !exists(/databases/$(database)/documents/users/$(requestId)) &&
         request.resource.data.status in ['VERIFYING', 'VERIFIED', 'PENDING'] &&
+        request.resource.data.requestType == 'REGISTRATION' &&
+        request.resource.data.reviewedById == '' &&
+        request.resource.data.reviewedByName == '' &&
+        request.resource.data.reviewReason == '';
+    }
+
+    function canWriteOwnProfileUpdateRequest(requestId) {
+      return signedIn() &&
+        request.auth.uid == requestId &&
+        exists(/databases/$(database)/documents/users/$(requestId)) &&
+        request.resource.data.status == 'PENDING' &&
+        request.resource.data.requestType == 'PROFILE_UPDATE' &&
+        request.resource.data.proposedFullName is string &&
+        request.resource.data.proposedPhone is string &&
+        request.resource.data.currentFullName is string &&
+        request.resource.data.currentPhone is string &&
         request.resource.data.reviewedById == '' &&
         request.resource.data.reviewedByName == '' &&
         request.resource.data.reviewReason == '';
@@ -115,7 +131,7 @@ service cloud.firestore {
          request.resource.data.diff(resource.data).changedKeys().hasOnly(['balance'])) ||
         (signedIn() &&
          request.auth.uid == userId &&
-         request.resource.data.diff(resource.data).changedKeys().hasOnly(['lastChatReadAt']));
+         request.resource.data.diff(resource.data).changedKeys().hasOnly(['lastChatReadAt', 'notificationSettings']));
 
       allow delete: if isAdmin();
     }
@@ -146,10 +162,12 @@ service cloud.firestore {
       allow read: if isAdmin() || isModerator() ||
         (signedIn() && request.auth.uid == requestId);
 
-      allow create: if canWriteOwnRegistrationRequest(requestId);
+      allow create: if canWriteOwnRegistrationRequest(requestId) ||
+        canWriteOwnProfileUpdateRequest(requestId);
 
       allow update: if isAdmin() || isModerator() ||
-        canWriteOwnRegistrationRequest(requestId);
+        canWriteOwnRegistrationRequest(requestId) ||
+        canWriteOwnProfileUpdateRequest(requestId);
 
       allow delete: if false;
     }
@@ -279,6 +297,17 @@ service cloud.firestore {
             'voterIds',
             'voterChoices'
           ])
+        ) ||
+        (
+          canCreateEvents() &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'title',
+            'message',
+            'editedById',
+            'editedByName',
+            'editedAtClient'
+          ]) &&
+          request.resource.data.editedById == request.auth.uid
         );
 
       allow delete: if false;

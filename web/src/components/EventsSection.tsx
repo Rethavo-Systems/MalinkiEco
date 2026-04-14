@@ -14,6 +14,7 @@ type EventsSectionProps = {
   formatDateTime: (value: number) => string
   labelForEventType: (event: CommunityEvent) => string
   onCreateEvent: (payload: { title: string; message: string; type: EventType; amount: number }) => void | Promise<void>
+  onEditEvent: (event: CommunityEvent, payload: { title: string; message: string }) => void | Promise<void>
   onCloseCharge: (event: CommunityEvent) => void | Promise<void>
 }
 
@@ -21,7 +22,8 @@ const DEFAULT_TEMPLATES: EventTemplate[] = [
   {
     name: 'Событие поселка',
     title: 'Скоро собрание',
-    message: 'Просьба всем собственникам принять участие в общем собрании в назначенное время. Обсудим текущие вопросы поселка и ближайшие расходы.',
+    message:
+      'Просьба всем собственникам принять участие в общем собрании в назначенное время. Обсудим текущие вопросы поселка и ближайшие расходы.',
     type: 'INFO',
   },
 ]
@@ -39,13 +41,15 @@ const EXPENSE_TEMPLATES: EventTemplate[] = [
   {
     name: 'За электричество',
     title: 'Оплата за электричество',
-    message: 'Из общей суммы поселка проводится оплата за электричество. Средства списываются на покрытие текущих расходов по электроэнергии.',
+    message:
+      'Из общей суммы поселка проводится оплата за электричество. Средства списываются на покрытие текущих расходов по электроэнергии.',
     type: 'EXPENSE',
   },
   {
     name: 'Вывоз мусора',
     title: 'Оплата за вывоз мусора',
-    message: 'Из общей суммы поселка проводится оплата за вывоз мусора. Это обязательный расход для поддержания порядка на территории КП.',
+    message:
+      'Из общей суммы поселка проводится оплата за вывоз мусора. Это обязательный расход для поддержания порядка на территории КП.',
     type: 'EXPENSE',
   },
   {
@@ -69,7 +73,7 @@ const EXPENSE_TEMPLATES: EventTemplate[] = [
   {
     name: 'SIM карта',
     title: 'Оплата SIM-карты',
-    message: 'Из общей суммы поселка проводится оплата SIM-карты, которая используется для работы оборудования и сервисов поселка.',
+    message: 'Из общей суммы поселка проводится оплата SIM-карты для работы оборудования и сервисов поселка.',
     type: 'EXPENSE',
   },
 ]
@@ -87,6 +91,7 @@ export function EventsSection({
   formatDateTime,
   labelForEventType,
   onCreateEvent,
+  onEditEvent,
   onCloseCharge,
 }: EventsSectionProps) {
   const isStaff = profile.role === 'ADMIN' || profile.role === 'MODERATOR'
@@ -157,12 +162,20 @@ export function EventsSection({
     }
   }
 
+  const handleEdit = async (event: CommunityEvent) => {
+    const nextTitle = window.prompt('Новый заголовок', event.title)
+    if (nextTitle === null) return
+    const nextMessage = window.prompt('Новое описание', event.message)
+    if (nextMessage === null) return
+    await onEditEvent(event, { title: nextTitle, message: nextMessage })
+  }
+
   return (
     <section className="panel">
       <div className="panel-heading">
         <p className="eyebrow accent">Раздел</p>
         <h2>Объявления и события</h2>
-        <p>Все важные новости поселка, сборы и личные подтверждения, которые относятся именно к вам.</p>
+        <p>Все важные новости поселка, сборы и оплаты из общей кассы.</p>
       </div>
 
       {isStaff && (
@@ -267,11 +280,16 @@ export function EventsSection({
                 {item.message.trim() && <p>{item.message}</p>}
                 {item.amount > 0 && <strong className="event-amount">{item.amount.toLocaleString('ru-RU')} ₽</strong>}
                 {item.createdByName && <p className="hero-copy compact">Создал: {item.createdByName}</p>}
-                {canCloseCharge && (
+                {isStaff && (
                   <div className="chat-actions-inline">
-                    <button className="ghost-button" type="button" onClick={() => void onCloseCharge(item)}>
-                      Закрыть сбор
+                    <button className="ghost-button" type="button" onClick={() => void handleEdit(item)}>
+                      Редактировать
                     </button>
+                    {canCloseCharge && (
+                      <button className="ghost-button" type="button" onClick={() => void onCloseCharge(item)}>
+                        Закрыть сбор
+                      </button>
+                    )}
                   </div>
                 )}
               </article>

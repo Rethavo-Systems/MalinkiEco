@@ -4,6 +4,16 @@ export type TabKey = 'events' | 'chat' | 'owners' | 'polls' | 'payments' | 'logs
 export type AuthMode = 'login' | 'register'
 export type ManualPaymentStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED'
 export type RegistrationRequestStatus = 'VERIFYING' | 'VERIFIED' | 'PENDING' | 'APPROVED' | 'REJECTED'
+export type RegistrationRequestType = 'REGISTRATION' | 'PROFILE_UPDATE'
+
+export type NotificationSettings = {
+  events: boolean
+  chat: boolean
+  mentions: boolean
+  polls: boolean
+  payments: boolean
+  system: boolean
+}
 
 export type RemoteUser = {
   id: string
@@ -14,6 +24,7 @@ export type RemoteUser = {
   role: Role
   balance: number
   lastChatReadAt: number
+  notificationSettings: NotificationSettings
   phone?: string
   login?: string
   isPlaceholder?: boolean
@@ -26,6 +37,7 @@ export type CommunityEvent = {
   type: EventType
   amount: number
   isClosed: boolean
+  isAnonymous: boolean
   pollOptions: string[]
   pollVotes: Record<string, number>
   voterIds: string[]
@@ -89,6 +101,11 @@ export type RegistrationRequest = {
   phone: string
   plots: string[]
   status: RegistrationRequestStatus
+  requestType: RegistrationRequestType
+  currentFullName: string
+  currentPhone: string
+  proposedFullName: string
+  proposedPhone: string
   createdAtClient: number
   reviewedByName: string
   reviewReason: string
@@ -120,4 +137,5 @@ export type PollDraft = {
   title: string
   message: string
   options: string
+  isAnonymous: boolean
 }
