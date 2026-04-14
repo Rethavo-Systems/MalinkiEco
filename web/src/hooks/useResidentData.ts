@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { collection, doc, limitToLast, onSnapshot, orderBy, query } from 'firebase/firestore'
+import { collection, doc, limitToLast, onSnapshot, orderBy, query, where } from 'firebase/firestore'
 import { EMPTY_PAYMENT_CONFIG } from '../constants'
 import { db, firebaseSetup } from '../lib/firebase'
 import { PLOTS_COLLECTION, buildOwnersDirectory, normalizePlotName } from '../lib/plotAccounts'
@@ -200,6 +200,31 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
           setPaymentRequests(nextRequests)
         },
       )
+    } else if (isStaff) {
+      // Keep a lightweight pending subscription in background so tab badge updates from any tab.
+      unsubscribePaymentRequests = onSnapshot(
+        query(collection(db, 'payment_requests'), where('status', '==', 'PENDING')),
+        (snapshot) => {
+          const nextRequests = snapshot.docs.map<ManualPaymentRequest>((item) => {
+            const data = item.data()
+            return {
+              id: item.id,
+              userId: String(data.userId ?? ''),
+              userName: String(data.userName ?? ''),
+              plotName: String(data.plotName ?? ''),
+              amount: Number(data.amount ?? 0),
+              eventId: String(data.eventId ?? ''),
+              eventTitle: String(data.eventTitle ?? ''),
+              purpose: String(data.purpose ?? ''),
+              status: 'PENDING',
+              createdAtClient: extractCreatedAt(data.createdAt, data.createdAtClient),
+              reviewedByName: String(data.reviewedByName ?? ''),
+              reviewReason: String(data.reviewReason ?? ''),
+            }
+          })
+          setPaymentRequests(nextRequests)
+        },
+      )
     } else {
       setPaymentRequests([])
     }
@@ -233,6 +258,34 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
               request.status === 'PENDING' || request.status === 'APPROVED' || request.status === 'REJECTED',
             ),
           )
+        },
+      )
+    } else if (isStaff) {
+      // Same idea for registration/profile-update requests: badge must stay live even off the owners tab.
+      unsubscribeRegistrationRequests = onSnapshot(
+        query(collection(db, 'registration_requests'), where('status', '==', 'PENDING')),
+        (snapshot) => {
+          const nextRequests = snapshot.docs.map<RegistrationRequest>((item) => {
+            const data = item.data()
+            return {
+              id: item.id,
+              login: String(data.login ?? ''),
+              authEmail: String(data.authEmail ?? ''),
+              fullName: String(data.fullName ?? ''),
+              phone: String(data.phone ?? ''),
+              requestType: String(data.requestType ?? 'REGISTRATION') as 'REGISTRATION' | 'PROFILE_UPDATE',
+              currentFullName: String(data.currentFullName ?? ''),
+              currentPhone: String(data.currentPhone ?? ''),
+              proposedFullName: String(data.proposedFullName ?? ''),
+              proposedPhone: String(data.proposedPhone ?? ''),
+              plots: Array.isArray(data.plots) ? data.plots.map(String).filter(Boolean) : [],
+              status: 'PENDING',
+              createdAtClient: extractCreatedAt(data.createdAt, data.createdAtClient),
+              reviewedByName: String(data.reviewedByName ?? ''),
+              reviewReason: String(data.reviewReason ?? ''),
+            }
+          })
+          setRegistrationRequests(nextRequests)
         },
       )
     } else {
