@@ -44,21 +44,28 @@ self.addEventListener('push', (event) => {
   const notificationTag = String(payload.tag || `malinkieco-${category}-${timestamp}`)
 
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      tag: notificationTag,
-      badge: '/notification-badge.png',
-      icon: '/brand-pwa-192.png',
-      vibrate: [180, 80, 180],
-      timestamp,
-      renotify: true,
-      silent: false,
-      data: {
-        url,
-        destination,
-        category,
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      const hasVisibleClient = clients.some((client) => client.visibilityState === 'visible' || client.focused)
+      if (hasVisibleClient) {
+        return
+      }
+
+      return self.registration.showNotification(title, {
+        body,
+        tag: notificationTag,
+        badge: '/notification-badge.png',
+        icon: '/brand-pwa-192.png',
+        vibrate: [180, 80, 180],
         timestamp,
-      },
+        renotify: true,
+        silent: false,
+        data: {
+          url,
+          destination,
+          category,
+          timestamp,
+        },
+      })
     }),
   )
 })

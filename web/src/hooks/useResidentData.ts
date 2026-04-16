@@ -36,8 +36,9 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
     if (!firebaseSetup.ready || !db || !profileId || !profileRole) return
 
     const isStaff = profileRole === 'ADMIN' || profileRole === 'MODERATOR'
-    const needsEvents = activeTab === 'events' || activeTab === 'polls' || activeTab === 'payments'
-    const needsChat = activeTab === 'chat'
+    // Events and chat drive global tab badges, so they must stay live regardless of the current tab.
+    const needsEvents = true
+    const needsChat = true
     const needsOwners = activeTab === 'owners'
     const needsPayments = activeTab === 'payments'
     const needsLogs = activeTab === 'logs'
