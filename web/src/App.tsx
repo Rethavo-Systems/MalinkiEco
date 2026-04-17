@@ -379,6 +379,7 @@ function App() {
     destination,
     category,
     targetUserIds,
+    emailTargets: explicitEmailTargets = [],
   }: {
     subject: string
     title: string
@@ -388,10 +389,14 @@ function App() {
     destination: string
     category: string
     targetUserIds: string[]
+    emailTargets?: string[]
   }) => {
     if (!db) return
 
-    const emailTargets = collectTargetedEmailTargets(targetUserIds)
+    const emailTargets = dedupeEmailTargets([
+      ...collectTargetedEmailTargets(targetUserIds),
+      ...explicitEmailTargets,
+    ])
     if (emailTargets.length === 0) return
 
     await enqueueEmailNotification(db, {
@@ -656,6 +661,7 @@ function App() {
             destination: 'auth',
             category: 'registration',
             targetUserIds: [request.id],
+            emailTargets: [request.authEmail],
           })
         } catch {
           emailQueued = false
