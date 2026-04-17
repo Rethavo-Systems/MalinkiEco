@@ -1,4 +1,5 @@
 import { useMemo, useState, type ChangeEvent } from 'react'
+import { formatPlots } from '../utils'
 import type { CommunityEvent, PollDraft, RemoteUser } from '../types'
 
 type PollsSectionProps = {
@@ -30,11 +31,12 @@ export function PollsSection({
   const [formError, setFormError] = useState('')
   const [expandedResults, setExpandedResults] = useState<Record<string, boolean>>({})
 
-  const userNameById = useMemo(
+  const userLabelById = useMemo(
     () =>
       users.reduce<Record<string, string>>((accumulator, user) => {
         if (user.id) {
-          accumulator[user.id] = user.fullName
+          const plotsLabel = formatPlots(user)
+          accumulator[user.id] = plotsLabel ? `${user.fullName} — ${plotsLabel}` : user.fullName
         }
         return accumulator
       }, {}),
@@ -54,7 +56,7 @@ export function PollsSection({
     return poll.pollOptions.reduce<Record<string, string[]>>((accumulator, option) => {
       const voters = poll.voterIds
         .filter((userId) => poll.voterChoices[userId] === option)
-        .map((userId) => userNameById[userId] || `ID: ${userId}`)
+        .map((userId) => userLabelById[userId] || `Участник ${userId}`)
       accumulator[option] = voters
       return accumulator
     }, {})
@@ -218,7 +220,9 @@ export function PollsSection({
                               <span>{option}</span>
                               <strong>{poll.pollVotes[option] ?? 0}</strong>
                               <span>
-                                {votersByOption[option].length > 0 ? votersByOption[option].join(', ') : 'Пока никто не голосовал'}
+                                {votersByOption[option].length > 0
+                                  ? votersByOption[option].join(', ')
+                                  : 'Пока никто не голосовал'}
                               </span>
                             </div>
                           </div>

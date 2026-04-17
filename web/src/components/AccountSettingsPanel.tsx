@@ -17,17 +17,45 @@ type AccountSettingsPanelProps = {
   onUpdateNotificationSettings: (settings: NotificationSettings) => void | Promise<void>
 }
 
-const BASE_TOGGLES: Array<{ key: keyof NotificationSettings; label: string }> = [
-  { key: 'events', label: 'События и объявления' },
-  { key: 'chat', label: 'Чат' },
-  { key: 'mentions', label: 'Упоминания' },
-  { key: 'polls', label: 'Опросы' },
-  { key: 'payments', label: 'Оплаты и сборы' },
-  { key: 'system', label: 'Системные уведомления' },
+const RESIDENT_TOGGLES: Array<{ key: keyof NotificationSettings; label: string; description: string }> = [
+  {
+    key: 'events',
+    label: 'События и объявления',
+    description: 'Уведомления о новых объявлениях, сборах и других событиях поселка.',
+  },
+  {
+    key: 'polls',
+    label: 'Опросы',
+    description: 'Уведомления о новых опросах, завершении и публикации результатов.',
+  },
+  {
+    key: 'payments',
+    label: 'Оплаты и сборы',
+    description: 'Уведомления о заявках на оплату, подтверждении и отклонении платежей.',
+  },
+  {
+    key: 'chat',
+    label: 'Чат',
+    description: 'Уведомления о новых сообщениях в общем чате.',
+  },
+  {
+    key: 'mentions',
+    label: 'Упоминания',
+    description: 'Отдельные уведомления, когда вас упоминают в сообщении.',
+  },
 ]
 
-const STAFF_TOGGLES: Array<{ key: keyof NotificationSettings; label: string }> = [
-  { key: 'requests', label: 'Заявки от пользователей' },
+const SERVICE_TOGGLES: Array<{ key: keyof NotificationSettings; label: string; description: string }> = [
+  {
+    key: 'requests',
+    label: 'Заявки пользователей',
+    description: 'Уведомления для staff о новых заявках на регистрацию, изменение данных и оплату.',
+  },
+  {
+    key: 'system',
+    label: 'Системные уведомления',
+    description: 'Служебные уведомления, связанные с доступом и важными изменениями в системе.',
+  },
 ]
 
 export function AccountSettingsPanel({
@@ -50,8 +78,22 @@ export function AccountSettingsPanel({
   const [settings, setSettings] = useState<NotificationSettings>(profile.notificationSettings)
 
   const isStaff = profile.role === 'ADMIN' || profile.role === 'MODERATOR'
-  const toggles = useMemo(
-    () => (isStaff ? [...BASE_TOGGLES, ...STAFF_TOGGLES] : BASE_TOGGLES),
+
+  const sections = useMemo(
+    () => [
+      {
+        title: 'Для жителей',
+        toggles: RESIDENT_TOGGLES,
+      },
+      ...(isStaff
+        ? [
+            {
+              title: 'Для модерации',
+              toggles: SERVICE_TOGGLES,
+            },
+          ]
+        : []),
+    ],
     [isStaff],
   )
 
@@ -118,21 +160,35 @@ export function AccountSettingsPanel({
 
         <section className="settings-panel__section">
           <h4>Уведомления</h4>
-          <div className="settings-toggles">
-            {toggles.map((toggle) => (
-              <label key={toggle.key} className="poll-anonymous-toggle" htmlFor={`settings-toggle-${toggle.key}`}>
-                <input
-                  id={`settings-toggle-${toggle.key}`}
-                  type="checkbox"
-                  checked={settings[toggle.key]}
-                  disabled={savingNotificationSettings}
-                  onChange={(event) => updateToggle(toggle.key, event.target.checked)}
-                />
-                <span className="poll-anonymous-toggle__track" aria-hidden="true">
-                  <span className="poll-anonymous-toggle__thumb" />
-                </span>
-                <span className="poll-anonymous-toggle__label">{toggle.label}</span>
-              </label>
+          <div className="settings-groups">
+            {sections.map((section) => (
+              <div key={section.title} className="settings-toggle-group">
+                <div className="settings-toggle-group__header">
+                  <strong>{section.title}</strong>
+                </div>
+                <div className="settings-toggles">
+                  {section.toggles.map((toggle) => (
+                    <label key={toggle.key} className="settings-toggle-card" htmlFor={`settings-toggle-${toggle.key}`}>
+                      <div className="settings-toggle-card__copy">
+                        <span className="settings-toggle-card__label">{toggle.label}</span>
+                        <span className="settings-toggle-card__description">{toggle.description}</span>
+                      </div>
+                      <span className="settings-toggle-card__control">
+                        <input
+                          id={`settings-toggle-${toggle.key}`}
+                          type="checkbox"
+                          checked={settings[toggle.key]}
+                          disabled={savingNotificationSettings}
+                          onChange={(event) => updateToggle(toggle.key, event.target.checked)}
+                        />
+                        <span className="poll-anonymous-toggle__track" aria-hidden="true">
+                          <span className="poll-anonymous-toggle__thumb" />
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </section>

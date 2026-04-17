@@ -629,6 +629,9 @@ function App() {
     if (!db || !profile) return
     try {
       await approveRegistrationRequestAction(db, profile, request)
+      let pushQueued = true
+      let emailQueued = true
+
       try {
         await enqueueTargetedNotification(db, {
           title: request.requestType === 'PROFILE_UPDATE' ? 'Изменение данных одобрено' : 'Регистрация одобрена',
@@ -641,9 +644,39 @@ function App() {
           targetUserIds: [request.id],
         })
       } catch {
+        pushQueued = false
+      }
+
+      if (request.requestType === 'REGISTRATION') {
+        try {
+          await enqueueTargetedEventEmail({
+            subject: 'Регистрация одобрена',
+            title: request.fullName,
+            message: 'Ваша заявка на регистрацию одобрена. Теперь вы можете войти в систему MalinkiEco.',
+            destination: 'auth',
+            category: 'registration',
+            targetUserIds: [request.id],
+          })
+        } catch {
+          emailQueued = false
+        }
+      }
+
+      if (!pushQueued && request.requestType === 'REGISTRATION' && !emailQueued) {
+        showNotice('Заявка одобрена, но push и письмо пользователю пока не поставлены в очередь.')
+        return
+      }
+
+      if (!pushQueued) {
         showNotice('Заявка одобрена, но уведомление пользователю пока не поставлено в очередь.')
         return
       }
+
+      if (request.requestType === 'REGISTRATION' && !emailQueued) {
+        showNotice('Заявка одобрена, но письмо пользователю пока не поставлено в очередь.')
+        return
+      }
+
       showNotice(request.requestType === 'PROFILE_UPDATE' ? 'Изменение данных одобрено' : 'Регистрация одобрена')
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось одобрить заявку')
