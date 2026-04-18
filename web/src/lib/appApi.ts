@@ -61,6 +61,8 @@ type NotificationJobPayload = {
   emailTargets?: string[]
   sendEmail?: boolean
   sendPush?: boolean
+  authDeleteUserId?: string
+  cleanupWebPushUserId?: string
 }
 
 type NotificationQueueOptions = {
@@ -106,6 +108,8 @@ async function enqueueNotificationJob(
   const targetUserIds = (payload.targetUserIds ?? []).map((item) => item.trim()).filter(Boolean)
   const excludedUserIds = (payload.excludedUserIds ?? []).map((item) => item.trim()).filter(Boolean)
   const emailTargets = (payload.emailTargets ?? []).map((item) => item.trim().toLowerCase()).filter(Boolean)
+  const authDeleteUserId = (payload.authDeleteUserId ?? '').trim()
+  const cleanupWebPushUserId = (payload.cleanupWebPushUserId ?? '').trim()
 
   if (!title || !body || !destination || !category) {
     throw new Error('Не удалось подготовить уведомление для отправки.')
@@ -138,6 +142,8 @@ async function enqueueNotificationJob(
     emailTargets,
     sendEmail: payload.sendEmail ?? false,
     sendPush: payload.sendPush ?? true,
+    authDeleteUserId,
+    cleanupWebPushUserId,
     attempts: 0,
     createdById: creatorId,
     createdAt: serverTimestamp(),
@@ -542,6 +548,23 @@ export async function setUserRole(
 }
 
 export async function deleteUserRecord(db: Firestore, actor: RemoteUser, targetUser: RemoteUser) {
+  await enqueueTargetedNotification(
+    db,
+    {
+      title: 'Auth cleanup',
+      body: `Delete auth account for ${targetUser.fullName}`,
+      destination: 'auth',
+      category: 'system',
+      targetUserIds: [targetUser.id],
+      sendEmail: false,
+      sendPush: false,
+      authDeleteUserId: targetUser.id,
+      cleanupWebPushUserId: targetUser.id,
+    },
+    {
+      creatorId: actor.id,
+    },
+  )
   await Promise.all([
     deleteDoc(doc(db, 'users', targetUser.id)),
     deleteDoc(doc(db, 'registration_requests', targetUser.id)),
