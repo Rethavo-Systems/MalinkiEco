@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ManualPaymentRequest, RegistrationRequest, RemoteUser, Role } from '../types'
 import { formatRussianPhone } from '../utils'
+
+type OwnerFilter = 'all' | 'debt' | 'overpaid' | 'clear'
 
 type OwnersSectionProps = {
   profile: RemoteUser
@@ -50,7 +52,9 @@ function registrationStatusLabel(request: RegistrationRequest) {
 }
 
 function requestTypeLabel(request: RegistrationRequest) {
-  return request.requestType === 'PROFILE_UPDATE' ? 'Запрос на изменение данных' : 'Заявка на регистрацию'
+  return request.requestType === 'PROFILE_UPDATE'
+    ? 'Запрос на изменение данных'
+    : 'Заявка на регистрацию'
 }
 
 function ownerRoleLabel(owner: RemoteUser, roleLabel: (role: Role) => string) {
@@ -81,6 +85,20 @@ export function OwnersSection({
   const canManageRoles = profile.role === 'ADMIN'
   const [showPaymentRequests, setShowPaymentRequests] = useState(false)
   const [showRegistrationRequests, setShowRegistrationRequests] = useState(false)
+  const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>('all')
+
+  const filteredOwners = useMemo(() => {
+    switch (ownerFilter) {
+      case 'debt':
+        return owners.filter((owner) => owner.balance < 0)
+      case 'overpaid':
+        return owners.filter((owner) => owner.balance > 0)
+      case 'clear':
+        return owners.filter((owner) => owner.balance === 0)
+      default:
+        return owners
+    }
+  }, [ownerFilter, owners])
 
   return (
     <section className="panel">
@@ -157,7 +175,11 @@ export function OwnersSection({
                 </h3>
                 <p>Одобрение новых регистраций и запросов на изменение данных.</p>
               </div>
-              <button className="ghost-button" type="button" onClick={() => setShowRegistrationRequests((value) => !value)}>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => setShowRegistrationRequests((value) => !value)}
+              >
                 {showRegistrationRequests ? 'Свернуть' : 'Развернуть'}
               </button>
             </div>
@@ -221,50 +243,85 @@ export function OwnersSection({
         </div>
       )}
 
-      <div className="owners-grid">
-        {owners.map((owner) => (
-          <article key={owner.id} className={`owner-card ${balanceTone(owner.balance)}`}>
-            <h3>{owner.fullName}</h3>
-            <p>{formatPlots(owner)}</p>
-            <span className="owner-role">{ownerRoleLabel(owner, roleLabel)}</span>
-            {isStaff && !owner.isPlaceholder && owner.phone && <p>{formatRussianPhone(owner.phone)}</p>}
-            {isStaff && !owner.isPlaceholder && owner.email && <p>{owner.email}</p>}
-            <strong>{owner.balance.toLocaleString('ru-RU')} ₽</strong>
-            <span>{balanceLabel(owner.balance)}</span>
-            {isStaff && (
-              <div className="chat-actions">
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() => {
-                    const value = window.prompt('Новый баланс', String(owner.balance))
-                    if (value === null) return
-                    const parsed = Number(value.replace(',', '.'))
-                    if (Number.isNaN(parsed)) return
-                    void onSetBalance(owner, Math.round(parsed))
-                  }}
-                >
-                  Изменить баланс
-                </button>
-                {canManageRoles && !owner.isPlaceholder && owner.role !== 'ADMIN' && (
+      <div className="owners-filter" role="group" aria-label="Фильтр собственников по балансу">
+        <button
+          className={`owners-filter__button ${ownerFilter === 'all' ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setOwnerFilter('all')}
+        >
+          Все
+        </button>
+        <button
+          className={`owners-filter__button ${ownerFilter === 'debt' ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setOwnerFilter('debt')}
+        >
+          С долгом
+        </button>
+        <button
+          className={`owners-filter__button ${ownerFilter === 'overpaid' ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setOwnerFilter('overpaid')}
+        >
+          С переплатой
+        </button>
+        <button
+          className={`owners-filter__button ${ownerFilter === 'clear' ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setOwnerFilter('clear')}
+        >
+          Без задолженности
+        </button>
+      </div>
+
+      {filteredOwners.length === 0 ? (
+        <div className="empty-state">По выбранному фильтру пока никого нет.</div>
+      ) : (
+        <div className="owners-grid">
+          {filteredOwners.map((owner) => (
+            <article key={owner.id} className={`owner-card ${balanceTone(owner.balance)}`}>
+              <h3>{owner.fullName}</h3>
+              <p>{formatPlots(owner)}</p>
+              <span className="owner-role">{ownerRoleLabel(owner, roleLabel)}</span>
+              {isStaff && !owner.isPlaceholder && owner.phone && <p>{formatRussianPhone(owner.phone)}</p>}
+              {isStaff && !owner.isPlaceholder && owner.email && <p>{owner.email}</p>}
+              <strong>{owner.balance.toLocaleString('ru-RU')} ₽</strong>
+              <span>{balanceLabel(owner.balance)}</span>
+              {isStaff && (
+                <div className="chat-actions">
                   <button
                     className="ghost-button"
                     type="button"
-                    onClick={() => void onToggleModerator(owner, owner.role === 'MODERATOR' ? 'USER' : 'MODERATOR')}
+                    onClick={() => {
+                      const value = window.prompt('Новый баланс', String(owner.balance))
+                      if (value === null) return
+                      const parsed = Number(value.replace(',', '.'))
+                      if (Number.isNaN(parsed)) return
+                      void onSetBalance(owner, Math.round(parsed))
+                    }}
                   >
-                    {owner.role === 'MODERATOR' ? 'Снять модератора' : 'Сделать модератором'}
+                    Изменить баланс
                   </button>
-                )}
-                {!owner.isPlaceholder && owner.role !== 'ADMIN' && (
-                  <button className="danger-button" type="button" onClick={() => void onDeleteUser(owner)}>
-                    Удалить
-                  </button>
-                )}
-              </div>
-            )}
-          </article>
-        ))}
-      </div>
+                  {canManageRoles && !owner.isPlaceholder && owner.role !== 'ADMIN' && (
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => void onToggleModerator(owner, owner.role === 'MODERATOR' ? 'USER' : 'MODERATOR')}
+                    >
+                      {owner.role === 'MODERATOR' ? 'Снять модератора' : 'Сделать модератором'}
+                    </button>
+                  )}
+                  {!owner.isPlaceholder && owner.role !== 'ADMIN' && (
+                    <button className="danger-button" type="button" onClick={() => void onDeleteUser(owner)}>
+                      Удалить
+                    </button>
+                  )}
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   )
 }

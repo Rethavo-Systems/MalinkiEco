@@ -24,8 +24,8 @@ import type {
   RemoteUser,
   Role,
 } from '../types'
-import { formatPlots, normalizeNotificationSettings, normalizeRussianPhone } from '../utils'
-import { DEFAULT_NOTIFICATION_SETTINGS, INITIAL_POLL_DRAFT } from '../constants'
+import { formatPlots, formatRussianPhone, normalizeNotificationSettings, normalizeRussianPhone } from '../utils'
+import { DEFAULT_NOTIFICATION_SETTINGS, INITIAL_POLL_DRAFT, SUPPORT_EMAIL } from '../constants'
 import {
   PLOTS_COLLECTION,
   PLOT_OPTIONS,
@@ -61,6 +61,8 @@ type NotificationJobPayload = {
   emailTargets?: string[]
   sendEmail?: boolean
   sendPush?: boolean
+  authDeleteUserId?: string
+  cleanupWebPushUserId?: string
 }
 
 type NotificationQueueOptions = {
@@ -106,6 +108,8 @@ async function enqueueNotificationJob(
   const targetUserIds = (payload.targetUserIds ?? []).map((item) => item.trim()).filter(Boolean)
   const excludedUserIds = (payload.excludedUserIds ?? []).map((item) => item.trim()).filter(Boolean)
   const emailTargets = (payload.emailTargets ?? []).map((item) => item.trim().toLowerCase()).filter(Boolean)
+  const authDeleteUserId = (payload.authDeleteUserId ?? '').trim()
+  const cleanupWebPushUserId = (payload.cleanupWebPushUserId ?? '').trim()
 
   if (!title || !body || !destination || !category) {
     throw new Error('Не удалось подготовить уведомление для отправки.')
@@ -138,6 +142,8 @@ async function enqueueNotificationJob(
     emailTargets,
     sendEmail: payload.sendEmail ?? false,
     sendPush: payload.sendPush ?? true,
+    authDeleteUserId,
+    cleanupWebPushUserId,
     attempts: 0,
     createdById: creatorId,
     createdAt: serverTimestamp(),
@@ -332,6 +338,52 @@ export async function submitProfileChangeRequest(
   )
 }
 
+export async function submitSupportRequest(
+  db: Firestore,
+  profile: RemoteUser,
+  payload: { subject: string; message: string },
+) {
+  const subject = payload.subject.trim()
+  const message = payload.message.trim()
+
+  if (!subject) {
+    throw new Error('Укажите тему обращения.')
+  }
+
+  if (!message) {
+    throw new Error('Опишите вопрос или предложение.')
+  }
+
+  const formattedPhone = profile.phone ? formatRussianPhone(profile.phone) : 'не указан'
+  const formattedPlots = formatPlots(profile) || 'не указаны'
+
+  await enqueueEmailNotification(
+    db,
+    {
+      title: `Поддержка: ${subject}`,
+      body: [
+        'Новое обращение из веб-версии MalinkiEco.',
+        '',
+        `Имя: ${profile.fullName}`,
+        `Почта аккаунта: ${profile.email}`,
+        `Телефон: ${formattedPhone}`,
+        `Участки: ${formattedPlots}`,
+        '',
+        'Сообщение:',
+        message,
+      ].join('\n'),
+      destination: 'auth',
+      category: 'verification',
+      emailTargets: [SUPPORT_EMAIL],
+      sendEmail: true,
+      sendPush: false,
+    },
+    {
+      creatorId: profile.id,
+    },
+  )
+}
+
 function setPlotBalancesInBatch(
   db: Firestore,
   batch: ReturnType<typeof writeBatch>,
@@ -483,6 +535,26 @@ export async function rejectRegistrationRequest(
     request.fullName,
     request.plots.join(', '),
   )
+
+  if (request.requestType === 'REGISTRATION') {
+    await enqueueTargetedNotification(
+      db,
+      {
+        title: 'Auth cleanup',
+        body: `Delete auth account for rejected registration ${request.fullName}`,
+        destination: 'auth',
+        category: 'system',
+        targetUserIds: [request.id],
+        sendEmail: false,
+        sendPush: false,
+        authDeleteUserId: request.id,
+        cleanupWebPushUserId: request.id,
+      },
+      {
+        creatorId: reviewer.id,
+      },
+    )
+  }
 }
 
 export async function setUserBalance(
@@ -542,6 +614,23 @@ export async function setUserRole(
 }
 
 export async function deleteUserRecord(db: Firestore, actor: RemoteUser, targetUser: RemoteUser) {
+  await enqueueTargetedNotification(
+    db,
+    {
+      title: 'Auth cleanup',
+      body: `Delete auth account for ${targetUser.fullName}`,
+      destination: 'auth',
+      category: 'system',
+      targetUserIds: [targetUser.id],
+      sendEmail: false,
+      sendPush: false,
+      authDeleteUserId: targetUser.id,
+      cleanupWebPushUserId: targetUser.id,
+    },
+    {
+      creatorId: actor.id,
+    },
+  )
   await Promise.all([
     deleteDoc(doc(db, 'users', targetUser.id)),
     deleteDoc(doc(db, 'registration_requests', targetUser.id)),
