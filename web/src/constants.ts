@@ -10,6 +10,8 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   system: true,
 }
 
+export const SUPPORT_EMAIL = 'info@rethavo.ru'
+
 export const EMPTY_PAYMENT_CONFIG: PaymentTransferConfig = {
   recipientName: '',
   recipientPhone: '',

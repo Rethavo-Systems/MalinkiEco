@@ -19,6 +19,7 @@ import {
   saveEditedChatMessage,
   savePaymentConfig as savePaymentConfigRequest,
   submitProfileChangeRequest as submitProfileChangeRequestAction,
+  submitSupportRequest as submitSupportRequestAction,
   sendChatMessage as sendChatMessageRequest,
   setUserBalance as setUserBalanceAction,
   updateEvent as updateEventRequest,
@@ -28,7 +29,7 @@ import {
   togglePinnedChatMessage,
   voteInPoll as voteInPollRequest,
 } from './lib/appApi'
-import { INITIAL_POLL_DRAFT, TAB_LABELS } from './constants'
+import { INITIAL_POLL_DRAFT, SUPPORT_EMAIL, TAB_LABELS } from './constants'
 import { AccountSettingsPanel } from './components/AccountSettingsPanel'
 import { AuthScreen } from './components/AuthScreen'
 import { EventsSection } from './components/EventsSection'
@@ -96,6 +97,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [savingProfileChangeRequest, setSavingProfileChangeRequest] = useState(false)
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false)
+  const [sendingSupportRequest, setSendingSupportRequest] = useState(false)
   const appGate = useAppGate()
   const { authUser, authLoading } = useFirebaseAuthState()
   const { pageNotice, showNotice, clearNotice } = usePageNotice()
@@ -463,6 +465,20 @@ function App() {
       showNotice(error instanceof Error ? error.message : 'Не удалось обновить настройки уведомлений.')
     } finally {
       setSavingNotificationSettings(false)
+    }
+  }
+
+  const handleSubmitSupportRequest = async (payload: { subject: string; message: string }) => {
+    if (!db || !profile || sendingSupportRequest) return
+    setSendingSupportRequest(true)
+    try {
+      await submitSupportRequestAction(db, profile, payload)
+      showNotice('Сообщение в поддержку отправлено.')
+      setSettingsOpen(false)
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Не удалось отправить сообщение в поддержку.')
+    } finally {
+      setSendingSupportRequest(false)
     }
   }
 
@@ -1190,6 +1206,8 @@ function App() {
         open={settingsOpen}
         savingProfileRequest={savingProfileChangeRequest}
         savingNotificationSettings={savingNotificationSettings}
+        sendingSupportRequest={sendingSupportRequest}
+        supportEmail={SUPPORT_EMAIL}
         webPushTitle={webPushPresentation.title}
         webPushDescription={webPushPresentation.description}
         webPushActionLabel={webPushPresentation.actionLabel}
@@ -1199,6 +1217,7 @@ function App() {
         onWebPushAction={handleWebPushAction}
         onSubmitProfileChangeRequest={handleSubmitProfileChangeRequest}
         onUpdateNotificationSettings={handleUpdateNotificationSettings}
+        onSubmitSupportRequest={handleSubmitSupportRequest}
       />
 
       <main className="content-grid">

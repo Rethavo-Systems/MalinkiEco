@@ -24,8 +24,8 @@ import type {
   RemoteUser,
   Role,
 } from '../types'
-import { formatPlots, normalizeNotificationSettings, normalizeRussianPhone } from '../utils'
-import { DEFAULT_NOTIFICATION_SETTINGS, INITIAL_POLL_DRAFT } from '../constants'
+import { formatPlots, formatRussianPhone, normalizeNotificationSettings, normalizeRussianPhone } from '../utils'
+import { DEFAULT_NOTIFICATION_SETTINGS, INITIAL_POLL_DRAFT, SUPPORT_EMAIL } from '../constants'
 import {
   PLOTS_COLLECTION,
   PLOT_OPTIONS,
@@ -335,6 +335,52 @@ export async function submitProfileChangeRequest(
       createdAtClient: Date.now(),
     },
     { merge: true },
+  )
+}
+
+export async function submitSupportRequest(
+  db: Firestore,
+  profile: RemoteUser,
+  payload: { subject: string; message: string },
+) {
+  const subject = payload.subject.trim()
+  const message = payload.message.trim()
+
+  if (!subject) {
+    throw new Error('Укажите тему обращения.')
+  }
+
+  if (!message) {
+    throw new Error('Опишите вопрос или предложение.')
+  }
+
+  const formattedPhone = profile.phone ? formatRussianPhone(profile.phone) : 'не указан'
+  const formattedPlots = formatPlots(profile) || 'не указаны'
+
+  await enqueueEmailNotification(
+    db,
+    {
+      title: `Поддержка: ${subject}`,
+      body: [
+        'Новое обращение из веб-версии MalinkiEco.',
+        '',
+        `Имя: ${profile.fullName}`,
+        `Почта аккаунта: ${profile.email}`,
+        `Телефон: ${formattedPhone}`,
+        `Участки: ${formattedPlots}`,
+        '',
+        'Сообщение:',
+        message,
+      ].join('\n'),
+      destination: 'auth',
+      category: 'verification',
+      emailTargets: [SUPPORT_EMAIL],
+      sendEmail: true,
+      sendPush: false,
+    },
+    {
+      creatorId: profile.id,
+    },
   )
 }
 

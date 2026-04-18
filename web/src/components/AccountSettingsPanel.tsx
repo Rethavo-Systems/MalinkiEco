@@ -6,6 +6,8 @@ type AccountSettingsPanelProps = {
   open: boolean
   savingProfileRequest: boolean
   savingNotificationSettings: boolean
+  sendingSupportRequest: boolean
+  supportEmail: string
   webPushTitle: string
   webPushDescription: string
   webPushActionLabel: string | null
@@ -15,6 +17,7 @@ type AccountSettingsPanelProps = {
   onWebPushAction: () => void | Promise<void>
   onSubmitProfileChangeRequest: (payload: { fullName: string; phone: string }) => void | Promise<void>
   onUpdateNotificationSettings: (settings: NotificationSettings) => void | Promise<void>
+  onSubmitSupportRequest: (payload: { subject: string; message: string }) => void | Promise<void>
 }
 
 type ToggleCard = {
@@ -37,7 +40,7 @@ const BASE_TOGGLES: ToggleCard[] = [
   {
     key: 'payments',
     label: 'Оплаты и сборы',
-    description: 'Уведомления о платежах, начислениях, подтверждении и отклонении оплат.',
+    description: 'Уведомления о платежах, начислениях, подтверждении и отклонении оплаты.',
   },
   {
     key: 'chat',
@@ -59,7 +62,7 @@ const BASE_TOGGLES: ToggleCard[] = [
 const STAFF_TOGGLE: ToggleCard = {
   key: 'requests',
   label: 'Заявки пользователей',
-  description: 'Уведомления о новых заявках на регистрацию, изменение данных и оплату.',
+  description: 'Уведомления о новых заявках на регистрацию, изменении данных и оплату.',
 }
 
 export function AccountSettingsPanel({
@@ -67,6 +70,8 @@ export function AccountSettingsPanel({
   open,
   savingProfileRequest,
   savingNotificationSettings,
+  sendingSupportRequest,
+  supportEmail,
   webPushTitle,
   webPushDescription,
   webPushActionLabel,
@@ -76,10 +81,13 @@ export function AccountSettingsPanel({
   onWebPushAction,
   onSubmitProfileChangeRequest,
   onUpdateNotificationSettings,
+  onSubmitSupportRequest,
 }: AccountSettingsPanelProps) {
   const [fullName, setFullName] = useState(profile.fullName)
   const [phone, setPhone] = useState(profile.phone ?? '')
   const [settings, setSettings] = useState<NotificationSettings>(profile.notificationSettings)
+  const [supportSubject, setSupportSubject] = useState('')
+  const [supportMessage, setSupportMessage] = useState('')
 
   const isStaff = profile.role === 'ADMIN' || profile.role === 'MODERATOR'
   const toggles = useMemo(() => (isStaff ? [...BASE_TOGGLES, STAFF_TOGGLE] : BASE_TOGGLES), [isStaff])
@@ -89,6 +97,8 @@ export function AccountSettingsPanel({
     setFullName(profile.fullName)
     setPhone(profile.phone ?? '')
     setSettings(profile.notificationSettings)
+    setSupportSubject('')
+    setSupportMessage('')
   }, [open, profile.fullName, profile.phone, profile.notificationSettings])
 
   if (!open) return null
@@ -168,6 +178,44 @@ export function AccountSettingsPanel({
                 </div>
               </label>
             ))}
+          </div>
+        </section>
+
+        <section className="settings-panel__section">
+          <h4>Связь с поддержкой</h4>
+          <p>
+            Здесь можно задать вопрос или отправить предложение по улучшению сервиса. Также можно написать напрямую на{' '}
+            <strong>{supportEmail}</strong>.
+          </p>
+          <label>
+            <span>Тема</span>
+            <input
+              value={supportSubject}
+              onChange={(event) => setSupportSubject(event.target.value)}
+              placeholder="Например: Вопрос по уведомлениям"
+            />
+          </label>
+          <label>
+            <span>Сообщение</span>
+            <textarea
+              rows={5}
+              value={supportMessage}
+              onChange={(event) => setSupportMessage(event.target.value)}
+              placeholder="Опишите вопрос, проблему или предложение."
+            />
+          </label>
+          <div className="settings-panel__actions">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={sendingSupportRequest}
+              onClick={() => void onSubmitSupportRequest({ subject: supportSubject, message: supportMessage })}
+            >
+              {sendingSupportRequest ? 'Отправляем...' : 'Отправить в поддержку'}
+            </button>
+            <a className="ghost-button settings-panel__link-button" href={`mailto:${supportEmail}`}>
+              Написать через почту
+            </a>
           </div>
         </section>
 

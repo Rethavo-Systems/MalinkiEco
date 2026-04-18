@@ -108,37 +108,6 @@ export function OwnersSection({
         <p>Список собственников и их участков. Цвет карточки показывает состояние баланса.</p>
       </div>
 
-      <div className="owners-filter" role="group" aria-label="Фильтр собственников по балансу">
-        <button
-          className={`owners-filter__button ${ownerFilter === 'all' ? 'is-active' : ''}`}
-          type="button"
-          onClick={() => setOwnerFilter('all')}
-        >
-          Все
-        </button>
-        <button
-          className={`owners-filter__button ${ownerFilter === 'debt' ? 'is-active' : ''}`}
-          type="button"
-          onClick={() => setOwnerFilter('debt')}
-        >
-          С долгом
-        </button>
-        <button
-          className={`owners-filter__button ${ownerFilter === 'overpaid' ? 'is-active' : ''}`}
-          type="button"
-          onClick={() => setOwnerFilter('overpaid')}
-        >
-          С переплатой
-        </button>
-        <button
-          className={`owners-filter__button ${ownerFilter === 'clear' ? 'is-active' : ''}`}
-          type="button"
-          onClick={() => setOwnerFilter('clear')}
-        >
-          Без задолженности
-        </button>
-      </div>
-
       {isStaff && (
         <div className="stack" style={{ marginBottom: 18 }}>
           <div className="poll-create-card">
@@ -273,6 +242,37 @@ export function OwnersSection({
           </div>
         </div>
       )}
+
+      <div className="owners-filter" role="group" aria-label="Фильтр собственников по балансу">
+        <button
+          className={`owners-filter__button ${ownerFilter === 'all' ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setOwnerFilter('all')}
+        >
+          Все
+        </button>
+        <button
+          className={`owners-filter__button ${ownerFilter === 'debt' ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setOwnerFilter('debt')}
+        >
+          С долгом
+        </button>
+        <button
+          className={`owners-filter__button ${ownerFilter === 'overpaid' ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setOwnerFilter('overpaid')}
+        >
+          С переплатой
+        </button>
+        <button
+          className={`owners-filter__button ${ownerFilter === 'clear' ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setOwnerFilter('clear')}
+        >
+          Без задолженности
+        </button>
+      </div>
 
       {filteredOwners.length === 0 ? (
         <div className="empty-state">По выбранному фильтру пока никого нет.</div>

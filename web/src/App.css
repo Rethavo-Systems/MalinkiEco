@@ -432,13 +432,34 @@
 }
 
 .settings-panel__section input[type='text'],
-.settings-panel__section input:not([type]) {
+.settings-panel__section input:not([type]),
+.settings-panel__section textarea {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 14px;
   background: rgba(6, 14, 25, 0.82);
   color: #f8fbff;
   padding: 10px 12px;
+}
+
+.settings-panel__section textarea {
+  resize: vertical;
+  min-height: 120px;
+  font: inherit;
+}
+
+.settings-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settings-panel__link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 
 .settings-toggles {
