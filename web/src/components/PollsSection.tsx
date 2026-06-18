@@ -168,7 +168,7 @@ export function PollsSection({
                     <span className="event-badge">{poll.isClosed ? 'Опрос закрыт' : 'Опрос активен'}</span>
                     <span>{formatDateTime(poll.createdAtClient)}</span>
                   </div>
-                  <div className="chat-actions-inline">
+                  <div className="chat-actions-inline poll-card__actions">
                     <button className="ghost-button" type="button" onClick={() => toggleResults(poll.id)} disabled={!canSeeResults}>
                       {canSeeResults ? (showResults ? 'Скрыть результаты' : 'Результаты') : 'Результаты после голосования'}
                     </button>

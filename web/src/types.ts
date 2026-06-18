@@ -86,7 +86,9 @@ export type ManualPaymentRequest = {
   plotName: string
   amount: number
   eventId: string
+  eventIds: string[]
   eventTitle: string
+  plotIds: string[]
   purpose: string
   status: ManualPaymentStatus
   createdAtClient: number

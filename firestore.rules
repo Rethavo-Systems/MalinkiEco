@@ -25,6 +25,28 @@ service cloud.firestore {
       return isAdmin() || isModerator();
     }
 
+    function currentUserHasPlots() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        userDoc(request.auth.uid).data.plots is list;
+    }
+
+    function canReadOwnPlotPaymentRequest() {
+      return currentUserHasPlots() &&
+        resource.data.status in ['PENDING', 'CONFIRMED'] &&
+        resource.data.plotIds is list &&
+        resource.data.plotIds.hasAny(userDoc(request.auth.uid).data.plots);
+    }
+
+    function canCreateOwnPaymentRequest() {
+      return currentUserHasPlots() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'PENDING' &&
+        request.resource.data.plotIds is list &&
+        request.resource.data.plotIds.size() > 0 &&
+        request.resource.data.plotIds.hasOnly(userDoc(request.auth.uid).data.plots);
+    }
+
     function canWriteOwnRegistrationRequest(requestId) {
       return signedIn() &&
         request.auth.uid == requestId &&
@@ -152,11 +174,10 @@ service cloud.firestore {
 
     match /payment_requests/{requestId} {
       allow read: if isAdmin() || isModerator() ||
-        (signedIn() && resource.data.userId == request.auth.uid);
+        (signedIn() && resource.data.userId == request.auth.uid) ||
+        canReadOwnPlotPaymentRequest();
 
-      allow create: if signedIn() &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.status == 'PENDING';
+      allow create: if canCreateOwnPaymentRequest();
 
       allow update: if isAdmin() || isModerator();
 

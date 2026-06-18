@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { collection, doc, limitToLast, onSnapshot, orderBy, query, where } from 'firebase/firestore'
+import {
+  collection,
+  doc,
+  limitToLast,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+  type DocumentData,
+  type QueryDocumentSnapshot,
+} from 'firebase/firestore'
 import { EMPTY_PAYMENT_CONFIG } from '../constants'
 import { db, firebaseSetup } from '../lib/firebase'
 import { PLOTS_COLLECTION, buildOwnersDirectory, normalizePlotName } from '../lib/plotAccounts'
@@ -19,9 +29,54 @@ import type {
 } from '../types'
 import { extractCreatedAt, toRemoteUser } from '../utils'
 
+function splitIntoChunks<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size))
+  }
+  return chunks
+}
+
+function parseStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : []
+}
+
+function parseLegacyEventIds(value: unknown): string[] {
+  return String(value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function toManualPaymentRequest(item: QueryDocumentSnapshot<DocumentData>, statusFallback?: ManualPaymentStatus): ManualPaymentRequest {
+  const data = item.data()
+  const eventIds = parseStringList(data.eventIds)
+  return {
+    id: item.id,
+    userId: String(data.userId ?? ''),
+    userName: String(data.userName ?? ''),
+    plotName: String(data.plotName ?? ''),
+    amount: Number(data.amount ?? 0),
+    eventId: String(data.eventId ?? ''),
+    eventIds: eventIds.length > 0 ? eventIds : parseLegacyEventIds(data.eventId),
+    eventTitle: String(data.eventTitle ?? ''),
+    plotIds: parseStringList(data.plotIds),
+    purpose: String(data.purpose ?? ''),
+    status: statusFallback ?? (String(data.status ?? 'PENDING') as ManualPaymentStatus),
+    createdAtClient: extractCreatedAt(data.createdAt, data.createdAtClient),
+    reviewedByName: String(data.reviewedByName ?? ''),
+    reviewReason: String(data.reviewReason ?? ''),
+  }
+}
+
 export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
   const profileId = profile?.id ?? null
   const profileRole = profile?.role ?? null
+  const profilePlotKey = profile?.plots.map((plot) => plot.trim()).filter(Boolean).join('|') ?? ''
+  const profilePaymentPlotIds = useMemo(
+    () => Array.from(new Set(profile?.plots.map((plot) => plot.trim()).filter(Boolean) ?? [])),
+    [profilePlotKey, profile?.plots],
+  )
   const [users, setUsers] = useState<RemoteUser[]>([])
   const [events, setEvents] = useState<CommunityEvent[]>([])
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -35,6 +90,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
   useEffect(() => {
     if (!firebaseSetup.ready || !db || !profileId || !profileRole) return
 
+    const activeDb = db
     const isStaff = profileRole === 'ADMIN' || profileRole === 'MODERATOR'
     // Events and chat drive global tab badges, so they must stay live regardless of the current tab.
     const needsEvents = true
@@ -181,23 +237,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
       unsubscribePaymentRequests = onSnapshot(
         query(collection(db, 'payment_requests'), orderBy('createdAt', 'desc')),
         (snapshot) => {
-          const nextRequests = snapshot.docs.map<ManualPaymentRequest>((item) => {
-            const data = item.data()
-            return {
-              id: item.id,
-              userId: String(data.userId ?? ''),
-              userName: String(data.userName ?? ''),
-              plotName: String(data.plotName ?? ''),
-              amount: Number(data.amount ?? 0),
-              eventId: String(data.eventId ?? ''),
-              eventTitle: String(data.eventTitle ?? ''),
-              purpose: String(data.purpose ?? ''),
-              status: String(data.status ?? 'PENDING') as ManualPaymentStatus,
-              createdAtClient: extractCreatedAt(data.createdAt, data.createdAtClient),
-              reviewedByName: String(data.reviewedByName ?? ''),
-              reviewReason: String(data.reviewReason ?? ''),
-            }
-          })
+          const nextRequests = snapshot.docs.map((item) => toManualPaymentRequest(item))
           setPaymentRequests(nextRequests)
         },
       )
@@ -206,26 +246,47 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
       unsubscribePaymentRequests = onSnapshot(
         query(collection(db, 'payment_requests'), where('status', '==', 'PENDING')),
         (snapshot) => {
-          const nextRequests = snapshot.docs.map<ManualPaymentRequest>((item) => {
-            const data = item.data()
-            return {
-              id: item.id,
-              userId: String(data.userId ?? ''),
-              userName: String(data.userName ?? ''),
-              plotName: String(data.plotName ?? ''),
-              amount: Number(data.amount ?? 0),
-              eventId: String(data.eventId ?? ''),
-              eventTitle: String(data.eventTitle ?? ''),
-              purpose: String(data.purpose ?? ''),
-              status: 'PENDING',
-              createdAtClient: extractCreatedAt(data.createdAt, data.createdAtClient),
-              reviewedByName: String(data.reviewedByName ?? ''),
-              reviewReason: String(data.reviewReason ?? ''),
-            }
-          })
+          const nextRequests = snapshot.docs.map((item) => toManualPaymentRequest(item, 'PENDING'))
           setPaymentRequests(nextRequests)
         },
       )
+    } else if (needsPayments) {
+      const plotChunks = splitIntoChunks(profilePaymentPlotIds, 10)
+
+      if (plotChunks.length === 0) {
+        setPaymentRequests([])
+      } else {
+        const requestsByChunk = new Map<number, ManualPaymentRequest[]>()
+        const unsubscribeChunkListeners = plotChunks.map((plotChunk, chunkIndex) =>
+          onSnapshot(
+            query(
+              collection(activeDb, 'payment_requests'),
+              where('status', 'in', ['PENDING', 'CONFIRMED']),
+              where('plotIds', 'array-contains-any', plotChunk),
+            ),
+            (snapshot) => {
+              requestsByChunk.set(
+                chunkIndex,
+                snapshot.docs.map((item) => toManualPaymentRequest(item)),
+              )
+
+              const mergedRequests = new Map<string, ManualPaymentRequest>()
+              requestsByChunk.forEach((requests) => {
+                requests.forEach((request) => mergedRequests.set(request.id, request))
+              })
+              setPaymentRequests(
+                Array.from(mergedRequests.values()).sort(
+                  (left, right) => Number(right.createdAtClient ?? 0) - Number(left.createdAtClient ?? 0),
+                ),
+              )
+            },
+          ),
+        )
+
+        unsubscribePaymentRequests = () => {
+          unsubscribeChunkListeners.forEach((unsubscribe) => unsubscribe())
+        }
+      }
     } else {
       setPaymentRequests([])
     }
@@ -332,7 +393,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
       unsubscribeRegistrationRequests()
       unsubscribeAuditLogs()
     }
-  }, [activeTab, profileId, profileRole])
+  }, [activeTab, profileId, profilePaymentPlotIds, profileRole])
 
   const owners = useMemo(() => buildOwnersDirectory(users, plotBalances), [users, plotBalances])
 
