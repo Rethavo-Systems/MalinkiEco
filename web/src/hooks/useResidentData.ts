@@ -261,13 +261,14 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
           onSnapshot(
             query(
               collection(activeDb, 'payment_requests'),
-              where('status', 'in', ['PENDING', 'CONFIRMED']),
               where('plotIds', 'array-contains-any', plotChunk),
             ),
             (snapshot) => {
               requestsByChunk.set(
                 chunkIndex,
-                snapshot.docs.map((item) => toManualPaymentRequest(item)),
+                snapshot.docs
+                  .map((item) => toManualPaymentRequest(item))
+                  .filter((request) => request.status === 'PENDING' || request.status === 'CONFIRMED'),
               )
 
               const mergedRequests = new Map<string, ManualPaymentRequest>()

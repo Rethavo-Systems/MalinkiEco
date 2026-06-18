@@ -33,7 +33,6 @@ service cloud.firestore {
 
     function canReadOwnPlotPaymentRequest() {
       return currentUserHasPlots() &&
-        resource.data.status in ['PENDING', 'CONFIRMED'] &&
         resource.data.plotIds is list &&
         resource.data.plotIds.hasAny(userDoc(request.auth.uid).data.plots);
     }
