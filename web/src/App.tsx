@@ -42,6 +42,7 @@ import { ResidentChat } from './components/ResidentChat'
 import { SetupScreen } from './components/SetupScreen'
 import { SiteFooter } from './components/SiteFooter'
 import { SplashScreen } from './components/SplashScreen'
+import { SupportPanel } from './components/SupportPanel'
 import { useAppGate } from './hooks/useAppGate'
 import { useFirebaseAuthState } from './hooks/useFirebaseAuthState'
 import { usePageNotice } from './hooks/usePageNotice'
@@ -95,6 +96,7 @@ function App() {
   const [pollDraft, setPollDraft] = useState<PollDraft>(INITIAL_POLL_DRAFT)
   const [pollSubmitting, setPollSubmitting] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [supportOpen, setSupportOpen] = useState(false)
   const [savingProfileChangeRequest, setSavingProfileChangeRequest] = useState(false)
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false)
   const [sendingSupportRequest, setSendingSupportRequest] = useState(false)
@@ -474,7 +476,7 @@ function App() {
     try {
       await submitSupportRequestAction(db, profile, payload)
       showNotice('Сообщение в поддержку отправлено.')
-      setSettingsOpen(false)
+      setSupportOpen(false)
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось отправить сообщение в поддержку.')
     } finally {
@@ -1169,9 +1171,28 @@ function App() {
             <span>{balanceLabel(profile.balance)}</span>
             <strong>{profile.balance.toLocaleString('ru-RU')} ₽</strong>
           </div>
-          <button className="ghost-button" type="button" onClick={() => setSettingsOpen(true)}>
-            Настройки
-          </button>
+          <div className="topbar-icon-buttons" aria-label="Быстрые действия">
+            <button className="topbar-icon-button" type="button" onClick={() => setSettingsOpen(true)} aria-label="Настройки" title="Настройки">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.5-2.4 1a8.2 8.2 0 0 0-2.5-1.5L14.2 2h-4.4l-.4 2.5A8.2 8.2 0 0 0 7 6L4.6 5l-2 3.5 2 1.5c-.1.5-.1 1-.1 1.5s0 1 .1 1.5l-2 1.5 2 3.5 2.4-1a8.2 8.2 0 0 0 2.5 1.5l.4 2.5h4.4l.4-2.5A8.2 8.2 0 0 0 17 17l2.4 1 2-3.5-2-1.5Z" />
+                <circle cx="12" cy="12" r="3.4" />
+              </svg>
+            </button>
+            <button
+              className="topbar-icon-button"
+              type="button"
+              onClick={() => setSupportOpen(true)}
+              aria-label="Техподдержка"
+              title="Техподдержка"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 11a7 7 0 0 1 14 0v4.5A3.5 3.5 0 0 1 15.5 19H14" />
+                <path d="M5 11v4h3v-5H6a1 1 0 0 0-1 1Z" />
+                <path d="M19 11v4h-3v-5h2a1 1 0 0 1 1 1Z" />
+                <path d="M10 19h4" />
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -1206,8 +1227,6 @@ function App() {
         open={settingsOpen}
         savingProfileRequest={savingProfileChangeRequest}
         savingNotificationSettings={savingNotificationSettings}
-        sendingSupportRequest={sendingSupportRequest}
-        supportEmail={SUPPORT_EMAIL}
         webPushTitle={webPushPresentation.title}
         webPushDescription={webPushPresentation.description}
         webPushActionLabel={webPushPresentation.actionLabel}
@@ -1217,7 +1236,14 @@ function App() {
         onWebPushAction={handleWebPushAction}
         onSubmitProfileChangeRequest={handleSubmitProfileChangeRequest}
         onUpdateNotificationSettings={handleUpdateNotificationSettings}
-        onSubmitSupportRequest={handleSubmitSupportRequest}
+      />
+
+      <SupportPanel
+        open={supportOpen}
+        sending={sendingSupportRequest}
+        supportEmail={SUPPORT_EMAIL}
+        onClose={() => setSupportOpen(false)}
+        onSubmit={handleSubmitSupportRequest}
       />
 
       <main className="content-grid">
