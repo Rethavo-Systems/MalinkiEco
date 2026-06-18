@@ -1566,6 +1566,11 @@ button.payment-form-grid__wide {
   background: radial-gradient(circle at 86% 16%, rgba(255, 66, 79, 0.22), transparent 30%);
 }
 
+.owner-card.is-critical-debt h3 {
+  padding-right: 52px;
+  overflow-wrap: break-word;
+}
+
 .owner-card__debt-alert {
   position: absolute;
   top: 18px;
