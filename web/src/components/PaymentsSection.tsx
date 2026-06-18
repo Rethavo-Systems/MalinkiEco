@@ -96,10 +96,13 @@ export function PaymentsSection({
     return lockedChargeIds
   }, [paymentRequests, profile.id, profile.plotName, profile.plots])
 
-  const availableCharges = useMemo(
-    () => events.filter((item) => item.type === 'CHARGE' && !item.isClosed && !hiddenChargeIds.has(item.id)),
-    [events, hiddenChargeIds],
-  )
+  const [locallyHiddenChargeIds, setLocallyHiddenChargeIds] = useState<string[]>([])
+  const availableCharges = useMemo(() => {
+    const localHiddenChargeIds = new Set(locallyHiddenChargeIds)
+    return events.filter(
+      (item) => item.type === 'CHARGE' && !item.isClosed && !hiddenChargeIds.has(item.id) && !localHiddenChargeIds.has(item.id),
+    )
+  }, [events, hiddenChargeIds, locallyHiddenChargeIds])
   const visibleDetails = useMemo(
     () => paymentDetails(paymentConfig).filter((item) => item.value.trim()),
     [paymentConfig, paymentDetails],
@@ -149,6 +152,11 @@ export function PaymentsSection({
     })
   }, [availableCharges])
 
+  useEffect(() => {
+    if (locallyHiddenChargeIds.length === 0) return
+    setLocallyHiddenChargeIds((current) => current.filter((eventId) => !hiddenChargeIds.has(eventId)))
+  }, [hiddenChargeIds, locallyHiddenChargeIds.length])
+
   const resetPaymentFeedback = () => {
     if (formError) setFormError('')
     if (formSuccess) setFormSuccess('')
@@ -181,6 +189,7 @@ export function PaymentsSection({
     setSubmitting(true)
     try {
       await onSubmitPaymentRequest(amount, selectedCharges, purpose.trim())
+      setLocallyHiddenChargeIds((current) => Array.from(new Set([...current, ...selectedCharges.map((item) => item.id)])))
       setSelectedChargeIds([])
       setManualAmount('')
       setPurpose('')
