@@ -357,8 +357,16 @@ export function OwnersSection({
         <div className="empty-state">По выбранному фильтру пока никого нет.</div>
       ) : (
         <div className="owners-grid">
-          {filteredOwners.map((owner) => (
-            <article key={owner.id} className={`owner-card ${balanceTone(owner.balance)}`}>
+          {filteredOwners.map((owner) => {
+            const hasCriticalDebt = owner.balance <= -5000
+
+            return (
+            <article key={owner.id} className={`owner-card ${balanceTone(owner.balance)} ${hasCriticalDebt ? 'is-critical-debt' : ''}`}>
+              {hasCriticalDebt && (
+                <span className="owner-card__debt-alert" aria-label="Критическая задолженность">
+                  !
+                </span>
+              )}
               <h3>{owner.fullName}</h3>
               <p>{formatPlots(owner)}</p>
               <span className="owner-role">{ownerRoleLabel(owner, roleLabel)}</span>
@@ -398,7 +406,8 @@ export function OwnersSection({
                 </div>
               )}
             </article>
-          ))}
+            )
+          })}
         </div>
       )}
     </section>
