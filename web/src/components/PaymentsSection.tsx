@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { CommunityEvent, PaymentTransferConfig, RemoteUser } from '../types'
+import { normalizePlots } from '../lib/plotAccounts'
+import type { CommunityEvent, ManualPaymentRequest, PaymentTransferConfig, RemoteUser } from '../types'
 
 type PaymentDetail = {
   label: string
@@ -24,6 +25,7 @@ type PaymentsSectionProps = {
   paymentConfig: PaymentTransferConfig
   communityFunds: number
   events: CommunityEvent[]
+  paymentRequests: ManualPaymentRequest[]
   balanceTone: (balance: number) => string
   balanceLabel: (balance: number) => string
   hasAnyPaymentDetails: (config: PaymentTransferConfig) => boolean
@@ -48,11 +50,24 @@ const EMPTY_CONFIG: PaymentConfigDraft = {
   sbpLink: '',
 }
 
+function paymentRequestEventIds(request: ManualPaymentRequest): string[] {
+  if (request.eventIds.length > 0) return request.eventIds
+  return request.eventId
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function buildPlotLookup(plots: string[]): Set<string> {
+  return new Set([...plots.map((plot) => plot.trim()).filter(Boolean), ...normalizePlots(plots)])
+}
+
 export function PaymentsSection({
   profile,
   paymentConfig,
   communityFunds,
   events,
+  paymentRequests,
   balanceTone,
   balanceLabel,
   hasAnyPaymentDetails,
@@ -64,9 +79,26 @@ export function PaymentsSection({
   onSavePaymentConfig,
 }: PaymentsSectionProps) {
   const isStaff = profile.role === 'ADMIN' || profile.role === 'MODERATOR'
+  const hiddenChargeIds = useMemo(() => {
+    const profilePlotLookup = buildPlotLookup(profile.plots.length > 0 ? profile.plots : [profile.plotName])
+    const lockedChargeIds = new Set<string>()
+
+    paymentRequests.forEach((request) => {
+      if (request.status !== 'PENDING' && request.status !== 'CONFIRMED') return
+
+      const requestPlotLookup = buildPlotLookup(request.plotIds.length > 0 ? request.plotIds : [request.plotName])
+      const samePlot = Array.from(requestPlotLookup).some((plot) => profilePlotLookup.has(plot))
+      if (!samePlot && request.userId !== profile.id) return
+
+      paymentRequestEventIds(request).forEach((eventId) => lockedChargeIds.add(eventId))
+    })
+
+    return lockedChargeIds
+  }, [paymentRequests, profile.id, profile.plotName, profile.plots])
+
   const availableCharges = useMemo(
-    () => events.filter((item) => item.type === 'CHARGE' && !item.isClosed),
-    [events],
+    () => events.filter((item) => item.type === 'CHARGE' && !item.isClosed && !hiddenChargeIds.has(item.id)),
+    [events, hiddenChargeIds],
   )
   const visibleDetails = useMemo(
     () => paymentDetails(paymentConfig).filter((item) => item.value.trim()),
@@ -108,6 +140,14 @@ export function PaymentsSection({
     setManualAmount(String(amountPerPlot * plotsCount))
     setPurpose(selectedCharges.map((item) => item.title).join(', '))
   }, [availableCharges, profile.plots.length, selectedChargeIds])
+
+  useEffect(() => {
+    const availableChargeIds = new Set(availableCharges.map((item) => item.id))
+    setSelectedChargeIds((current) => {
+      const nextSelectedChargeIds = current.filter((eventId) => availableChargeIds.has(eventId))
+      return nextSelectedChargeIds.length === current.length ? current : nextSelectedChargeIds
+    })
+  }, [availableCharges])
 
   const resetPaymentFeedback = () => {
     if (formError) setFormError('')
@@ -206,7 +246,10 @@ export function PaymentsSection({
                 return (
                   <label key={item.id} className={`charge-chip ${checked ? 'is-selected' : ''}`}>
                     <input type="checkbox" checked={checked} onChange={() => toggleCharge(item.id)} />
-                    <span>{item.title}</span>
+                    <span className="charge-chip__check" aria-hidden="true">
+                      <span className="charge-chip__check-mark" />
+                    </span>
+                    <span className="charge-chip__title">{item.title}</span>
                     <strong>{item.amount.toLocaleString('ru-RU')} ₽</strong>
                   </label>
                 )

@@ -3,6 +3,7 @@ import type { ManualPaymentRequest, RegistrationRequest, RemoteUser, Role } from
 import { formatRussianPhone } from '../utils'
 
 type OwnerFilter = 'all' | 'debt' | 'overpaid' | 'clear'
+type RequestBucket = 'active' | 'archive'
 
 type OwnersSectionProps = {
   profile: RemoteUser
@@ -52,13 +53,25 @@ function registrationStatusLabel(request: RegistrationRequest) {
 }
 
 function requestTypeLabel(request: RegistrationRequest) {
-  return request.requestType === 'PROFILE_UPDATE'
-    ? 'Запрос на изменение данных'
-    : 'Заявка на регистрацию'
+  return request.requestType === 'PROFILE_UPDATE' ? 'Запрос на изменение данных' : 'Заявка на регистрацию'
 }
 
 function ownerRoleLabel(owner: RemoteUser, roleLabel: (role: Role) => string) {
   return owner.isPlaceholder ? 'Не зарегистрирован' : roleLabel(owner.role)
+}
+
+function splitPaymentRequests(requests: ManualPaymentRequest[]) {
+  return {
+    active: requests.filter((request) => request.status === 'PENDING'),
+    archive: requests.filter((request) => request.status !== 'PENDING'),
+  }
+}
+
+function splitRegistrationRequests(requests: RegistrationRequest[]) {
+  return {
+    active: requests.filter((request) => request.status === 'PENDING'),
+    archive: requests.filter((request) => request.status !== 'PENDING'),
+  }
 }
 
 export function OwnersSection({
@@ -85,7 +98,15 @@ export function OwnersSection({
   const canManageRoles = profile.role === 'ADMIN'
   const [showPaymentRequests, setShowPaymentRequests] = useState(false)
   const [showRegistrationRequests, setShowRegistrationRequests] = useState(false)
+  const [paymentRequestBucket, setPaymentRequestBucket] = useState<RequestBucket>('active')
+  const [registrationRequestBucket, setRegistrationRequestBucket] = useState<RequestBucket>('active')
   const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>('all')
+
+  const paymentRequestGroups = useMemo(() => splitPaymentRequests(paymentRequests), [paymentRequests])
+  const registrationRequestGroups = useMemo(() => splitRegistrationRequests(registrationRequests), [registrationRequests])
+
+  const visiblePaymentRequests = paymentRequestGroups[paymentRequestBucket]
+  const visibleRegistrationRequests = registrationRequestGroups[registrationRequestBucket]
 
   const filteredOwners = useMemo(() => {
     switch (ownerFilter) {
@@ -125,41 +146,70 @@ export function OwnersSection({
             </div>
 
             {showPaymentRequests && (
-              <div className="stack">
-                {paymentRequests.length === 0 ? (
-                  <div className="chat-empty-inline">Пока нет заявок на оплату.</div>
-                ) : (
-                  paymentRequests.map((request) => (
-                    <article key={request.id} className="event-card">
-                      <div className="event-meta">
-                        <span className="event-badge">{paymentStatusLabel(request)}</span>
-                        <span>{formatDateTime(request.createdAtClient)}</span>
-                      </div>
-                      <h3>{request.userName}</h3>
-                      <p>{request.plotName}</p>
-                      <p>{request.eventTitle || request.purpose || 'Без назначения'}</p>
-                      <strong className="event-amount">{request.amount.toLocaleString('ru-RU')} ₽</strong>
-                      {request.reviewReason && <p>Причина: {request.reviewReason}</p>}
-                      {request.status === 'PENDING' && (
-                        <div className="chat-actions">
-                          <button className="primary-button" type="button" onClick={() => void onConfirmPayment(request)}>
-                            Подтвердить
-                          </button>
-                          <button
-                            className="danger-button"
-                            type="button"
-                            onClick={() => {
-                              const reason = window.prompt('Причина отклонения', request.reviewReason) ?? ''
-                              void onRejectPayment(request, reason)
-                            }}
-                          >
-                            Отклонить
-                          </button>
+              <div className="request-board">
+                <div className="request-tabs" role="tablist" aria-label="Разделы заявок на оплату">
+                  <button
+                    className={`request-tab ${paymentRequestBucket === 'active' ? 'is-active' : ''}`}
+                    type="button"
+                    onClick={() => setPaymentRequestBucket('active')}
+                  >
+                    <span>Активные</span>
+                    {paymentRequestGroups.active.length > 0 && (
+                      <span className="request-tab__count">{paymentRequestGroups.active.length}</span>
+                    )}
+                  </button>
+                  <button
+                    className={`request-tab ${paymentRequestBucket === 'archive' ? 'is-active' : ''}`}
+                    type="button"
+                    onClick={() => setPaymentRequestBucket('archive')}
+                  >
+                    <span>Архив</span>
+                    {paymentRequestGroups.archive.length > 0 && (
+                      <span className="request-tab__count">{paymentRequestGroups.archive.length}</span>
+                    )}
+                  </button>
+                </div>
+
+                <div className="stack">
+                  {visiblePaymentRequests.length === 0 ? (
+                    <div className="chat-empty-inline">
+                      {paymentRequestBucket === 'active'
+                        ? 'Активных заявок на оплату нет.'
+                        : 'В архиве пока нет заявок на оплату.'}
+                    </div>
+                  ) : (
+                    visiblePaymentRequests.map((request) => (
+                      <article key={request.id} className="event-card">
+                        <div className="event-meta">
+                          <span className="event-badge">{paymentStatusLabel(request)}</span>
+                          <span>{formatDateTime(request.createdAtClient)}</span>
                         </div>
-                      )}
-                    </article>
-                  ))
-                )}
+                        <h3>{request.userName}</h3>
+                        <p>{request.plotName}</p>
+                        <p>{request.eventTitle || request.purpose || 'Без назначения'}</p>
+                        <strong className="event-amount">{request.amount.toLocaleString('ru-RU')} ₽</strong>
+                        {request.reviewReason && <p>Причина: {request.reviewReason}</p>}
+                        {request.status === 'PENDING' && (
+                          <div className="chat-actions">
+                            <button className="primary-button" type="button" onClick={() => void onConfirmPayment(request)}>
+                              Подтвердить
+                            </button>
+                            <button
+                              className="danger-button"
+                              type="button"
+                              onClick={() => {
+                                const reason = window.prompt('Причина отклонения', request.reviewReason) ?? ''
+                                void onRejectPayment(request, reason)
+                              }}
+                            >
+                              Отклонить
+                            </button>
+                          </div>
+                        )}
+                      </article>
+                    ))
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -185,58 +235,87 @@ export function OwnersSection({
             </div>
 
             {showRegistrationRequests && (
-              <div className="stack">
-                {registrationRequests.length === 0 ? (
-                  <div className="chat-empty-inline">Пока нет заявок пользователей.</div>
-                ) : (
-                  registrationRequests.map((request) => (
-                    <article key={request.id} className="event-card">
-                      <div className="event-meta">
-                        <span className="event-badge">{registrationStatusLabel(request)}</span>
-                        <span>{formatDateTime(request.createdAtClient)}</span>
-                      </div>
-                      <h3>{requestTypeLabel(request)}</h3>
-                      <p>{request.authEmail || request.login}</p>
-                      {request.requestType === 'PROFILE_UPDATE' ? (
-                        <div className="stack">
-                          <p>Текущие данные: {request.currentFullName || request.fullName}</p>
-                          {(request.currentPhone || request.phone) && (
-                            <p>Текущий телефон: {formatRussianPhone(request.currentPhone || request.phone)}</p>
-                          )}
-                          <p>Новые данные: {request.proposedFullName || request.fullName}</p>
-                          {(request.proposedPhone || request.phone) && (
-                            <p>Новый телефон: {formatRussianPhone(request.proposedPhone || request.phone)}</p>
-                          )}
-                          <p>{request.plots.join(', ')}</p>
+              <div className="request-board">
+                <div className="request-tabs" role="tablist" aria-label="Разделы заявок пользователей">
+                  <button
+                    className={`request-tab ${registrationRequestBucket === 'active' ? 'is-active' : ''}`}
+                    type="button"
+                    onClick={() => setRegistrationRequestBucket('active')}
+                  >
+                    <span>Активные</span>
+                    {registrationRequestGroups.active.length > 0 && (
+                      <span className="request-tab__count">{registrationRequestGroups.active.length}</span>
+                    )}
+                  </button>
+                  <button
+                    className={`request-tab ${registrationRequestBucket === 'archive' ? 'is-active' : ''}`}
+                    type="button"
+                    onClick={() => setRegistrationRequestBucket('archive')}
+                  >
+                    <span>Архив</span>
+                    {registrationRequestGroups.archive.length > 0 && (
+                      <span className="request-tab__count">{registrationRequestGroups.archive.length}</span>
+                    )}
+                  </button>
+                </div>
+
+                <div className="stack">
+                  {visibleRegistrationRequests.length === 0 ? (
+                    <div className="chat-empty-inline">
+                      {registrationRequestBucket === 'active'
+                        ? 'Активных заявок пользователей нет.'
+                        : 'В архиве пока нет заявок пользователей.'}
+                    </div>
+                  ) : (
+                    visibleRegistrationRequests.map((request) => (
+                      <article key={request.id} className="event-card">
+                        <div className="event-meta">
+                          <span className="event-badge">{registrationStatusLabel(request)}</span>
+                          <span>{formatDateTime(request.createdAtClient)}</span>
                         </div>
-                      ) : (
-                        <div className="stack">
-                          <p>{request.fullName}</p>
-                          <p>{request.plots.join(', ')}</p>
-                          {request.phone && <p>{formatRussianPhone(request.phone)}</p>}
-                        </div>
-                      )}
-                      {request.reviewReason && <p>Причина: {request.reviewReason}</p>}
-                      {request.status === 'PENDING' && (
-                        <div className="chat-actions">
-                          <button className="primary-button" type="button" onClick={() => void onApproveRegistration(request)}>
-                            Одобрить
-                          </button>
-                          <button
-                            className="danger-button"
-                            type="button"
-                            onClick={() => {
-                              const reason = window.prompt('Причина отклонения', request.reviewReason) ?? ''
-                              void onRejectRegistration(request, reason)
-                            }}
-                          >
-                            Отклонить
-                          </button>
-                        </div>
-                      )}
-                    </article>
-                  ))
-                )}
+                        <h3>{requestTypeLabel(request)}</h3>
+                        <p>{request.authEmail || request.login}</p>
+                        {request.requestType === 'PROFILE_UPDATE' ? (
+                          <div className="stack">
+                            <p>Текущие данные: {request.currentFullName || request.fullName}</p>
+                            {(request.currentPhone || request.phone) && (
+                              <p>Текущий телефон: {formatRussianPhone(request.currentPhone || request.phone)}</p>
+                            )}
+                            <p>Новые данные: {request.proposedFullName || request.fullName}</p>
+                            {(request.proposedPhone || request.phone) && (
+                              <p>Новый телефон: {formatRussianPhone(request.proposedPhone || request.phone)}</p>
+                            )}
+                            <p>{request.plots.join(', ')}</p>
+                          </div>
+                        ) : (
+                          <div className="stack">
+                            <p>{request.fullName}</p>
+                            <p>{request.plots.join(', ')}</p>
+                            {request.phone && <p>{formatRussianPhone(request.phone)}</p>}
+                          </div>
+                        )}
+                        {request.reviewReason && <p>Причина: {request.reviewReason}</p>}
+                        {request.status === 'PENDING' && (
+                          <div className="chat-actions">
+                            <button className="primary-button" type="button" onClick={() => void onApproveRegistration(request)}>
+                              Одобрить
+                            </button>
+                            <button
+                              className="danger-button"
+                              type="button"
+                              onClick={() => {
+                                const reason = window.prompt('Причина отклонения', request.reviewReason) ?? ''
+                                void onRejectRegistration(request, reason)
+                              }}
+                            >
+                              Отклонить
+                            </button>
+                          </div>
+                        )}
+                      </article>
+                    ))
+                  )}
+                </div>
               </div>
             )}
           </div>

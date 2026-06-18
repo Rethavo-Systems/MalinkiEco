@@ -602,6 +602,64 @@
   gap: 10px;
 }
 
+.request-board {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.request-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+  gap: 10px;
+}
+
+.request-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e7eefb;
+  font: inherit;
+  font-weight: 700;
+  box-shadow: none !important;
+  white-space: nowrap;
+  transition: transform 140ms ease, background 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.request-tab.is-active {
+  background: linear-gradient(135deg, rgba(255, 110, 148, 0.22), rgba(255, 143, 115, 0.18));
+  border-color: rgba(255, 162, 184, 0.28);
+  box-shadow: 0 14px 30px rgba(255, 110, 148, 0.16) !important;
+  color: #fff;
+}
+
+.request-tab__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.11);
+  color: rgba(231, 238, 251, 0.9);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.request-tab.is-active .request-tab__count {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
 .tab-button.is-active {
   background: linear-gradient(135deg, #ff6e94 0%, #ff8f73 100%);
   color: #fff;
@@ -896,6 +954,23 @@
   justify-content: flex-end;
 }
 
+.event-card__actions,
+.poll-card__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.event-card__actions {
+  justify-content: flex-start;
+  margin-top: 14px;
+}
+
+.poll-card__actions {
+  justify-content: flex-end;
+}
+
 .chat-flags {
   display: flex;
   align-items: center;
@@ -1128,6 +1203,7 @@ button.payment-form-grid__wide {
 }
 
 .charge-chip {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1141,12 +1217,52 @@ button.payment-form-grid__wide {
 }
 
 .charge-chip input {
-  accent-color: #ff7b9d;
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.charge-chip__check {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  border: 2px solid rgba(255, 255, 255, 0.56);
+  background: rgba(6, 14, 25, 0.42);
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.charge-chip__check-mark {
+  width: 10px;
+  height: 6px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  opacity: 0;
+  transform: rotate(-45deg) translateY(-1px);
+  transition: opacity 140ms ease;
+}
+
+.charge-chip__title {
+  flex: 1;
+  text-align: center;
 }
 
 .charge-chip.is-selected {
   background: linear-gradient(135deg, rgba(255, 110, 148, 0.18), rgba(255, 143, 115, 0.14));
   border-color: rgba(255, 151, 178, 0.28);
+}
+
+.charge-chip.is-selected .charge-chip__check {
+  border-color: rgba(255, 123, 157, 0.95);
+  background: linear-gradient(135deg, rgba(255, 110, 148, 0.95), rgba(255, 143, 115, 0.9));
+  box-shadow: 0 10px 24px rgba(255, 110, 148, 0.18);
+}
+
+.charge-chip.is-selected .charge-chip__check-mark {
+  opacity: 1;
 }
 
 .poll-create {

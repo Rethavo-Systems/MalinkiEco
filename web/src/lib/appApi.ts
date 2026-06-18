@@ -917,6 +917,8 @@ export async function createPaymentRequest(
   const cleanEvents = events.filter((item) => item.type === 'CHARGE').filter((item, index, array) => {
     return array.findIndex((candidate) => candidate.id === item.id) === index
   })
+  const eventIds = cleanEvents.map((item) => item.id)
+  const plotIds = profile.plots.map((plot) => plot.trim()).filter(Boolean)
 
   if (normalizedAmount <= 0) throw new Error('Укажите сумму больше нуля')
 
@@ -925,7 +927,9 @@ export async function createPaymentRequest(
     userName: profile.fullName,
     plotName: formatPlots(profile),
     amount: normalizedAmount,
-    eventId: cleanEvents.map((item) => item.id).join(','),
+    eventId: eventIds.join(','),
+    eventIds,
+    plotIds,
     eventTitle: cleanEvents.map((item) => item.title).join(', '),
     purpose: cleanPurpose,
     status: 'PENDING',
@@ -989,7 +993,11 @@ export async function confirmPaymentRequest(
     const userSnapshot = await transaction.get(userRef)
     const currentFundsSnapshot = await transaction.get(fundsRef)
 
-    const payerPlots = extractPlotsFromUserData((userSnapshot.data() ?? {}) as Record<string, unknown>)
+    const requestPlotIds = Array.isArray(requestData.plotIds)
+      ? requestData.plotIds.map(String).map((plot) => plot.trim()).filter(Boolean)
+      : []
+    const payerPlots =
+      requestPlotIds.length > 0 ? requestPlotIds : extractPlotsFromUserData((userSnapshot.data() ?? {}) as Record<string, unknown>)
     const plotShares = splitAmountAcrossPlots(payerPlots, amount)
     const currentFunds = Number(currentFundsSnapshot.data()?.amount ?? 0)
 

@@ -1291,6 +1291,7 @@ function App() {
             paymentConfig={paymentConfig}
             communityFunds={communityFunds}
             events={visibleEvents}
+            paymentRequests={paymentRequests}
             balanceTone={balanceTone}
             balanceLabel={balanceLabel}
             hasAnyPaymentDetails={hasAnyPaymentDetails}

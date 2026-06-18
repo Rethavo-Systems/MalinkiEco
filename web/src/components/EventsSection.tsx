@@ -302,7 +302,7 @@ export function EventsSection({
                 {item.createdByName && <p className="hero-copy compact">Создал: {item.createdByName}</p>}
 
                 {isStaff && (
-                  <div className="chat-actions-inline">
+                  <div className="chat-actions-inline event-card__actions">
                     {!isEditing && (
                       <button className="ghost-button" type="button" onClick={() => startEdit(item)}>
                         Редактировать
