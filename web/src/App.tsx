@@ -45,11 +45,13 @@ import { SplashScreen } from './components/SplashScreen'
 import { SupportPanel } from './components/SupportPanel'
 import { useAppGate } from './hooks/useAppGate'
 import { useFirebaseAuthState } from './hooks/useFirebaseAuthState'
+import { useGateStatus } from './hooks/useGateStatus'
 import { usePageNotice } from './hooks/usePageNotice'
 import { useResidentAuth } from './hooks/useResidentAuth'
 import { useResidentData } from './hooks/useResidentData'
 import { useResidentProfile } from './hooks/useResidentProfile'
 import { useWebPush } from './hooks/useWebPush'
+import { openGate as openGateRequest } from './lib/gateApi'
 import { clearRequestedTabFromUrl, readRequestedTabFromUrl } from './lib/webPush'
 import type {
   ChatMessage,
@@ -77,6 +79,7 @@ import './App.css'
 const EVENT_EMAIL_FOOTER =
   'Рекомендуем открыть MalinkiEco, чтобы ознакомиться с деталями события и актуальной информацией.'
 const TAB_BADGE_STORAGE_PREFIX = 'malinkieco.tabSeen.v1'
+const GATE_DEBT_BLOCK_THRESHOLD = -5000
 
 type TabSeenState = Record<TabKey, number>
 
@@ -100,6 +103,9 @@ function App() {
   const [savingProfileChangeRequest, setSavingProfileChangeRequest] = useState(false)
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false)
   const [sendingSupportRequest, setSendingSupportRequest] = useState(false)
+  const [gateOpening, setGateOpening] = useState(false)
+  const [localGateCooldownUntil, setLocalGateCooldownUntil] = useState(0)
+  const [gateClockNow, setGateClockNow] = useState(() => Date.now())
   const appGate = useAppGate()
   const { authUser, authLoading } = useFirebaseAuthState()
   const { pageNotice, showNotice, clearNotice } = usePageNotice()
@@ -135,6 +141,7 @@ function App() {
     presentation: webPushPresentation,
     handleAction: handleWebPushAction,
   } = useWebPush(maintenanceLocked ? null : profile, showNotice)
+  const gateStatus = useGateStatus(Boolean(profile?.id) && !maintenanceLocked)
 
   const {
     users,
@@ -149,6 +156,18 @@ function App() {
   } = useResidentData(maintenanceLocked ? null : profile, activeTab)
 
   const isStaff = profile?.role === 'ADMIN' || profile?.role === 'MODERATOR'
+  const gateCooldownUntilClient = Math.max(Number(gateStatus.cooldownUntilClient || 0), localGateCooldownUntil)
+  const gateCooldownRemainingSeconds = Math.max(0, Math.ceil((gateCooldownUntilClient - gateClockNow) / 1000))
+  const gateCoolingDown = gateCooldownRemainingSeconds > 0
+  const gateDebtBlocked = Number(profile?.balance ?? 0) <= GATE_DEBT_BLOCK_THRESHOLD
+  const gateDisabled = gateOpening || gateCoolingDown || gateDebtBlocked
+  const gateButtonHint = gateDebtBlocked
+    ? 'Недоступно при долге от 5 000 ₽'
+    : gateCoolingDown
+      ? `Подождите ${gateCooldownRemainingSeconds} сек.`
+      : gateOpening
+        ? 'Отправляем команду'
+        : 'Доступно'
   const pendingPaymentRequestsCount = paymentRequests.filter((request) => request.status === 'PENDING').length
   const pendingRegistrationRequestsCount =
     registrationRequests.filter((request) => request.status === 'PENDING').length
@@ -166,6 +185,21 @@ function App() {
     () => (isStaff ? ['events', 'chat', 'owners', 'polls', 'payments', 'logs'] : ['events', 'chat', 'owners', 'polls', 'payments']),
     [isStaff],
   )
+
+  useEffect(() => {
+    if (gateCooldownUntilClient <= Date.now()) return
+
+    const timer = window.setInterval(() => {
+      const nextNow = Date.now()
+      setGateClockNow(nextNow)
+      if (nextNow >= gateCooldownUntilClient) {
+        window.clearInterval(timer)
+      }
+    }, 500)
+
+    setGateClockNow(Date.now())
+    return () => window.clearInterval(timer)
+  }, [gateCooldownUntilClient])
 
   useEffect(() => {
     clearRequestedTabFromUrl()
@@ -481,6 +515,32 @@ function App() {
       showNotice(error instanceof Error ? error.message : 'Не удалось отправить сообщение в поддержку.')
     } finally {
       setSendingSupportRequest(false)
+    }
+  }
+
+  const handleOpenGate = async () => {
+    if (gateOpening) return
+    if (gateDebtBlocked) {
+      showNotice('Открытие ворот недоступно при задолженности от 5 000 ₽.')
+      return
+    }
+    if (gateCoolingDown) {
+      showNotice(`Ворота уже открывали. Подождите ${gateCooldownRemainingSeconds} сек.`)
+      return
+    }
+
+    setGateOpening(true)
+    try {
+      const response = await openGateRequest()
+      if (response.cooldownUntilClient) {
+        setLocalGateCooldownUntil(Number(response.cooldownUntilClient))
+        setGateClockNow(Date.now())
+      }
+      showNotice('Команда открытия ворот отправлена.')
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Не удалось открыть ворота.')
+    } finally {
+      setGateOpening(false)
     }
   }
 
@@ -1171,27 +1231,48 @@ function App() {
             <span>{balanceLabel(profile.balance)}</span>
             <strong>{profile.balance.toLocaleString('ru-RU')} ₽</strong>
           </div>
-          <div className="topbar-icon-buttons" aria-label="Быстрые действия">
-            <button className="topbar-icon-button" type="button" onClick={() => setSettingsOpen(true)} aria-label="Настройки" title="Настройки">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.5-2.4 1a8.2 8.2 0 0 0-2.5-1.5L14.2 2h-4.4l-.4 2.5A8.2 8.2 0 0 0 7 6L4.6 5l-2 3.5 2 1.5c-.1.5-.1 1-.1 1.5s0 1 .1 1.5l-2 1.5 2 3.5 2.4-1a8.2 8.2 0 0 0 2.5 1.5l.4 2.5h4.4l.4-2.5A8.2 8.2 0 0 0 17 17l2.4 1 2-3.5-2-1.5Z" />
-                <circle cx="12" cy="12" r="3.4" />
-              </svg>
-            </button>
+          <div className="topbar-control-stack" aria-label="Быстрые действия">
             <button
-              className="topbar-icon-button"
+              className={`gate-open-button ${gateOpening ? 'is-busy' : ''} ${gateCoolingDown ? 'is-cooling' : ''} ${gateDebtBlocked ? 'is-debt-blocked' : ''}`}
               type="button"
-              onClick={() => setSupportOpen(true)}
-              aria-label="Техподдержка"
-              title="Техподдержка"
+              onClick={() => void handleOpenGate()}
+              disabled={gateDisabled}
+              aria-label="Открыть ворота"
+              title="Открыть ворота"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 11a7 7 0 0 1 14 0v4.5A3.5 3.5 0 0 1 15.5 19H14" />
-                <path d="M5 11v4h3v-5H6a1 1 0 0 0-1 1Z" />
-                <path d="M19 11v4h-3v-5h2a1 1 0 0 1 1 1Z" />
-                <path d="M10 19h4" />
-              </svg>
+              <span className="gate-open-button__main">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 20V7.6c0-.9.6-1.7 1.5-1.9l11-2.7c.8-.2 1.5.4 1.5 1.2V20" />
+                  <path d="M4 20h16" />
+                  <path d="M8 19V9.4l6-1.5V20" />
+                  <path d="M11 14.5h.01" />
+                </svg>
+                <span>Открыть ворота</span>
+              </span>
+              <span className="gate-open-button__hint">{gateButtonHint}</span>
             </button>
+            <div className="topbar-icon-buttons">
+              <button className="topbar-icon-button" type="button" onClick={() => setSettingsOpen(true)} aria-label="Настройки" title="Настройки">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.5-2.4 1a8.2 8.2 0 0 0-2.5-1.5L14.2 2h-4.4l-.4 2.5A8.2 8.2 0 0 0 7 6L4.6 5l-2 3.5 2 1.5c-.1.5-.1 1-.1 1.5s0 1 .1 1.5l-2 1.5 2 3.5 2.4-1a8.2 8.2 0 0 0 2.5 1.5l.4 2.5h4.4l.4-2.5A8.2 8.2 0 0 0 17 17l2.4 1 2-3.5-2-1.5Z" />
+                  <circle cx="12" cy="12" r="3.4" />
+                </svg>
+              </button>
+              <button
+                className="topbar-icon-button"
+                type="button"
+                onClick={() => setSupportOpen(true)}
+                aria-label="Техподдержка"
+                title="Техподдержка"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 11a7 7 0 0 1 14 0v4.5A3.5 3.5 0 0 1 15.5 19H14" />
+                  <path d="M5 11v4h3v-5H6a1 1 0 0 0-1 1Z" />
+                  <path d="M19 11v4h-3v-5h2a1 1 0 0 1 1 1Z" />
+                  <path d="M10 19h4" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </header>

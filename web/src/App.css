@@ -342,10 +342,31 @@
   gap: 16px;
 }
 
+.topbar-actions {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-areas:
+    'balance gate'
+    'balance icons';
+  align-items: center;
+  column-gap: 18px;
+  row-gap: 8px;
+}
+
 .topbar-icon-buttons {
+  grid-area: icons;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
+}
+
+.topbar-control-stack {
+  display: contents;
+}
+
+.topbar-actions .balance-chip {
+  grid-area: balance;
 }
 
 .topbar-icon-button {
@@ -380,9 +401,97 @@
   box-shadow: 0 18px 38px rgba(255, 110, 148, 0.14);
 }
 
-.topbar-icon-button:focus-visible {
+.gate-open-button {
+  grid-area: gate;
+  width: 182px;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-radius: 22px;
+  border: 1px solid rgba(159, 237, 190, 0.24);
+  background:
+    linear-gradient(135deg, rgba(96, 189, 131, 0.22), rgba(91, 154, 255, 0.12)),
+    rgba(255, 255, 255, 0.07);
+  color: #dcffe8;
+  display: grid;
+  gap: 4px;
+  cursor: pointer;
+  box-shadow: 0 16px 34px rgba(2, 10, 24, 0.18);
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+}
+
+.gate-open-button__main {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.gate-open-button__main svg {
+  width: 21px;
+  height: 21px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.gate-open-button__hint {
+  color: rgba(220, 255, 232, 0.72);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.gate-open-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(96, 189, 131, 0.34), rgba(255, 143, 115, 0.16));
+  border-color: rgba(159, 237, 190, 0.34);
+  box-shadow: 0 18px 38px rgba(96, 189, 131, 0.16);
+}
+
+.gate-open-button.is-busy {
+  animation: gate-button-pulse 900ms ease-in-out infinite;
+}
+
+.gate-open-button.is-cooling,
+.gate-open-button.is-debt-blocked {
+  background:
+    radial-gradient(circle at 88% 18%, rgba(255, 66, 79, 0.18), transparent 36%),
+    rgba(255, 96, 96, 0.14);
+  border-color: rgba(255, 73, 83, 0.72);
+  color: #ffd9d9;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 95, 104, 0.34),
+    0 18px 48px rgba(255, 63, 77, 0.12);
+}
+
+.gate-open-button.is-cooling .gate-open-button__hint,
+.gate-open-button.is-debt-blocked .gate-open-button__hint {
+  color: rgba(255, 217, 217, 0.74);
+}
+
+.gate-open-button:disabled {
+  opacity: 0.86;
+}
+
+.topbar-icon-button:focus-visible,
+.gate-open-button:focus-visible {
   outline: 2px solid rgba(255, 147, 177, 0.72);
   outline-offset: 3px;
+}
+
+@keyframes gate-button-pulse {
+  0%,
+  100% {
+    box-shadow: 0 16px 34px rgba(96, 189, 131, 0.12);
+  }
+
+  50% {
+    box-shadow: 0 18px 42px rgba(96, 189, 131, 0.32);
+  }
 }
 
 .settings-overlay {
@@ -1676,6 +1785,49 @@ button:disabled {
     padding: 16px 12px 28px;
   }
 
+  .topbar {
+    padding: 18px;
+  }
+
+  .topbar-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'balance'
+      'gate'
+      'icons';
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .balance-chip {
+    min-width: 0;
+  }
+
+  .topbar-icon-buttons {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .gate-open-button {
+    width: 100%;
+    min-width: 0;
+    min-height: 60px;
+    border-radius: 22px;
+    padding: 10px 14px;
+  }
+
+  .topbar-icon-button {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+  }
+
+  .topbar-icon-button svg {
+    width: 22px;
+    height: 22px;
+  }
+
   .hero-card,
   .panel,
   .topbar,
@@ -1715,5 +1867,11 @@ button:disabled {
   .copy-button,
   .notice-close {
     width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .topbar-icon-buttons {
+    justify-content: flex-start;
   }
 }
