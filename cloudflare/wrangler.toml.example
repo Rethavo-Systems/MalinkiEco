@@ -1,0 +1,14 @@
+name = "malinkieco-gate"
+main = "gate-worker.js"
+compatibility_date = "2026-06-22"
+
+routes = [
+  { pattern = "malinkieco.rethavo.ru/api/*", zone_name = "rethavo.ru" }
+]
+
+[vars]
+APP_ORIGIN = "https://malinkieco.rethavo.ru"
+FIREBASE_PROJECT_ID = "malinkiecodb"
+EWELINK_REGION = "eu"
+EWELINK_DEVICE_ID = "100185ec48"
+EWELINK_GATE_GLOBAL_COOLDOWN_MS = "10000"

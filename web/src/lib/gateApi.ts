@@ -11,16 +11,12 @@ function apiBaseUrl() {
 }
 
 export async function openGate() {
-  const baseUrl = apiBaseUrl()
-  if (!baseUrl) {
-    throw new Error('Сервер управления воротами пока не настроен.')
-  }
-
   const user = auth?.currentUser
   if (!user) {
     throw new Error('Войдите в аккаунт, чтобы открыть ворота.')
   }
 
+  const baseUrl = apiBaseUrl()
   const token = await user.getIdToken()
   const response = await fetch(`${baseUrl}/api/gate/open`, {
     method: 'POST',
