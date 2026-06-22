@@ -2,6 +2,11 @@
 
 The web app must not call eWeLink directly because `EWELINK_APP_SECRET` must stay server-side.
 
+Recommended production option: Cloudflare Worker on the same domain.
+See `docs/CLOUDFLARE_GATE_WORKER_SETUP.md`.
+
+The older Express backend can still be used as a separate server if needed.
+
 ## Backend environment
 
 Add these values to the backend runtime secrets:
@@ -22,13 +27,15 @@ EWELINK_GATE_GLOBAL_COOLDOWN_MS=10000
 On the first successful run, the backend stores refreshed tokens in Firestore under
 `private_settings/ewelink_gate`. Client Firestore rules do not expose this collection.
 
-## Web build variable
+## Web build variable for a separate backend
 
-Set this GitHub repository variable before publishing the web app:
+Set this GitHub repository variable only if the backend is not on the same domain:
 
 ```env
 VITE_APP_API_BASE_URL=https://your-backend.example
 ```
+
+For Cloudflare route `malinkieco.rethavo.ru/api/*`, leave `VITE_APP_API_BASE_URL` empty.
 
 The frontend calls:
 
