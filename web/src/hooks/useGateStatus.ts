@@ -3,19 +3,21 @@ import { useEffect, useState } from 'react'
 import { db, firebaseSetup } from '../lib/firebase'
 
 export type GateStatus = {
+  status: string
   cooldownUntilClient: number
+  openingLockUntilClient: number
   lastOpenedAtClient: number
   lastOpenedById: string
   lastOpenedByName: string
-  status: string
 }
 
 const EMPTY_GATE_STATUS: GateStatus = {
+  status: '',
   cooldownUntilClient: 0,
+  openingLockUntilClient: 0,
   lastOpenedAtClient: 0,
   lastOpenedById: '',
   lastOpenedByName: '',
-  status: '',
 }
 
 export function useGateStatus(enabled: boolean) {
@@ -35,11 +37,12 @@ export function useGateStatus(enabled: boolean) {
 
       const data = snapshot.data()
       setGateStatus({
+        status: String(data.status ?? ''),
         cooldownUntilClient: Number(data.cooldownUntilClient ?? 0),
+        openingLockUntilClient: Number(data.openingLockUntilClient ?? 0),
         lastOpenedAtClient: Number(data.lastOpenedAtClient ?? 0),
         lastOpenedById: String(data.lastOpenedById ?? ''),
         lastOpenedByName: String(data.lastOpenedByName ?? ''),
-        status: String(data.status ?? ''),
       })
     })
   }, [enabled])

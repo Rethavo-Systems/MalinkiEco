@@ -41,7 +41,7 @@ export default {
 }
 
 async function openGate(request, env) {
-  let claimedCooldownUntilClient = 0
+  let claimedOpeningLockUntilClient = 0
 
   try {
     assertRequiredEnv(env)
@@ -98,6 +98,7 @@ async function openGate(request, env) {
     try {
       const statusDoc = await getFirestoreDocument(env, 'app_settings/gate_status', transaction)
       const cooldownUntilClient = Number(statusDoc?.cooldownUntilClient || 0)
+      const openingLockUntilClient = Number(statusDoc?.openingLockUntilClient || 0)
 
       if (cooldownUntilClient > now) {
         await rollbackFirestoreTransaction(env, transaction)
@@ -114,11 +115,27 @@ async function openGate(request, env) {
         )
       }
 
-      claimedCooldownUntilClient = now + openingLockMs
+      if (openingLockUntilClient > now) {
+        await rollbackFirestoreTransaction(env, transaction)
+        const waitSeconds = Math.ceil((openingLockUntilClient - now) / 1000)
+        return jsonResponse(
+          {
+            ok: false,
+            error: `Ворота уже открываются. Подождите ${waitSeconds} сек.`,
+            openingLockUntilClient,
+          },
+          429,
+          request,
+          env,
+        )
+      }
+
+      claimedOpeningLockUntilClient = now + openingLockMs
       await commitFirestoreTransaction(env, transaction, [
         setWrite(env, 'app_settings/gate_status', {
           status: 'OPENING',
-          cooldownUntilClient: claimedCooldownUntilClient,
+          cooldownUntilClient,
+          openingLockUntilClient: claimedOpeningLockUntilClient,
           lastOpenedAtClient: now,
           lastOpenedById: actorId,
           lastOpenedByName: actorName,
@@ -142,6 +159,7 @@ async function openGate(request, env) {
       setFirestoreDocument(env, 'app_settings/gate_status', {
         status: 'COOLDOWN',
         cooldownUntilClient: finalCooldownUntilClient,
+        openingLockUntilClient: 0,
         lastOpenedAtClient: now,
         lastOpenedById: actorId,
         lastOpenedByName: actorName,
@@ -165,10 +183,11 @@ async function openGate(request, env) {
 
     return jsonResponse({ ok: true, cooldownUntilClient: finalCooldownUntilClient }, 200, request, env)
   } catch (error) {
-    if (claimedCooldownUntilClient > 0) {
+    if (claimedOpeningLockUntilClient > 0) {
       await setFirestoreDocument(env, 'app_settings/gate_status', {
         status: 'ERROR',
-        cooldownUntilClient: claimedCooldownUntilClient,
+        cooldownUntilClient: 0,
+        openingLockUntilClient: 0,
         lastError: error?.message || 'Не удалось открыть ворота.',
         updatedAtClient: Date.now(),
       }).catch(() => undefined)
