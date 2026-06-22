@@ -169,7 +169,7 @@ function App() {
   const gateButtonHint = gateDebtBlocked
     ? 'Недоступно при долге от 5 000 ₽'
     : gateOpening || gateOpeningGlobally
-      ? 'Ворота открываются'
+      ? 'Активация'
     : gateCoolingDown
       ? `Подождите ${gateCooldownRemainingSeconds} сек.`
       : 'Доступно'
@@ -534,7 +534,7 @@ function App() {
       return
     }
     if (gateOpeningGlobally) {
-      showNotice('Ворота уже открываются. Подождите несколько секунд.')
+      showNotice('Активация уже выполняется. Подождите несколько секунд.')
       return
     }
 
@@ -545,7 +545,7 @@ function App() {
       const serverCooldownUntil = Number(response.cooldownUntilClient || 0)
       setLocalGateCooldownUntil(Math.max(serverCooldownUntil, nextNow + GATE_UI_COOLDOWN_MS))
       setGateClockNow(nextNow)
-      showNotice('Команда открытия ворот отправлена.')
+      showNotice('Кнопка открытия ворот активирована.')
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось открыть ворота.')
     } finally {

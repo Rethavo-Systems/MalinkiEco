@@ -121,7 +121,7 @@ async function openGate(request, env) {
         return jsonResponse(
           {
             ok: false,
-            error: `Ворота уже открываются. Подождите ${waitSeconds} сек.`,
+            error: `Активация уже выполняется. Подождите ${waitSeconds} сек.`,
             openingLockUntilClient,
           },
           429,
@@ -171,8 +171,8 @@ async function openGate(request, env) {
         actorId,
         actorName,
         actorRole,
-        title: 'Открыты ворота',
-        message: 'Пользователь отправил команду открытия ворот.',
+        title: 'Активация ворот',
+        message: 'Пользователь активировал кнопку открытия ворот.',
         targetUserId: actorId,
         targetUserName: actorName,
         targetPlotName: actorPlotName,
