@@ -80,6 +80,7 @@ const EVENT_EMAIL_FOOTER =
   'Рекомендуем открыть MalinkiEco, чтобы ознакомиться с деталями события и актуальной информацией.'
 const TAB_BADGE_STORAGE_PREFIX = 'malinkieco.tabSeen.v1'
 const GATE_DEBT_BLOCK_THRESHOLD = -5000
+const GATE_UI_COOLDOWN_MS = 10_000
 
 type TabSeenState = Record<TabKey, number>
 
@@ -540,10 +541,10 @@ function App() {
     setGateOpening(true)
     try {
       const response = await openGateRequest()
-      if (response.cooldownUntilClient) {
-        setLocalGateCooldownUntil(Number(response.cooldownUntilClient))
-        setGateClockNow(Date.now())
-      }
+      const nextNow = Date.now()
+      const serverCooldownUntil = Number(response.cooldownUntilClient || 0)
+      setLocalGateCooldownUntil(Math.max(serverCooldownUntil, nextNow + GATE_UI_COOLDOWN_MS))
+      setGateClockNow(nextNow)
       showNotice('Команда открытия ворот отправлена.')
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось открыть ворота.')

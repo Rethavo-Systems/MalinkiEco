@@ -456,6 +456,7 @@
   animation: gate-button-pulse 900ms ease-in-out infinite;
 }
 
+.gate-open-button.is-busy,
 .gate-open-button.is-cooling,
 .gate-open-button.is-debt-blocked {
   background:
@@ -468,6 +469,7 @@
     0 18px 48px rgba(255, 63, 77, 0.12);
 }
 
+.gate-open-button.is-busy .gate-open-button__hint,
 .gate-open-button.is-cooling .gate-open-button__hint,
 .gate-open-button.is-debt-blocked .gate-open-button__hint {
   color: rgba(255, 217, 217, 0.74);
