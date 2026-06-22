@@ -16,3 +16,5 @@
 /captures
 /backend/node_modules
 /backend/.env
+.secrets/
+.vite-local*.log

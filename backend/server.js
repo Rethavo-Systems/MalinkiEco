@@ -23,7 +23,17 @@ const {
   SMTP_PASS,
   SMTP_FROM,
   RESEND_API_KEY,
-  RESEND_FROM
+  RESEND_FROM,
+  EWELINK_APP_ID,
+  EWELINK_APP_SECRET,
+  EWELINK_DEVICE_ID,
+  EWELINK_REGION,
+  EWELINK_ACCESS_TOKEN,
+  EWELINK_REFRESH_TOKEN,
+  EWELINK_AT_EXPIRED_TIME,
+  EWELINK_RT_EXPIRED_TIME,
+  EWELINK_GATE_OPEN_COOLDOWN_MS,
+  EWELINK_GATE_GLOBAL_COOLDOWN_MS
 } = process.env;
 
 const paymentProviderShopId = String(PAYMENT_PROVIDER_SHOP_ID || "").trim();
@@ -54,6 +64,22 @@ const payments = firestore.collection("payments");
 const paymentOrders = firestore.collection("payment_orders");
 const userDevices = firestore.collection("user_devices");
 const emailVerifications = firestore.collection("email_verifications");
+const privateSettings = firestore.collection("private_settings");
+const gateTokenRef = privateSettings.doc("ewelink_gate");
+const gateStatusRef = firestore.collection("app_settings").doc("gate_status");
+const gateCooldownByUser = new Map();
+let gateGlobalLastOpenedAt = 0;
+let ewelinkTokenCache = null;
+
+const ewelinkApiHosts = {
+  cn: "https://cn-apia.coolkit.cn",
+  as: "https://as-apia.coolkit.cc",
+  us: "https://us-apia.coolkit.cc",
+  eu: "https://eu-apia.coolkit.cc"
+};
+const gateOpenCooldownMs = Number(EWELINK_GATE_OPEN_COOLDOWN_MS || 10000);
+const gateGlobalCooldownMs = Number(EWELINK_GATE_GLOBAL_COOLDOWN_MS || 10000);
+const gateDebtBlockThreshold = -5000;
 
 const resendFrom = String(RESEND_FROM || SMTP_FROM || "").trim();
 const isResendConfigured = Boolean(RESEND_API_KEY && resendFrom);
@@ -462,6 +488,135 @@ app.get("/api/notifications/devices", authenticateFirebaseUser, async (req, res)
   }
 });
 
+app.post("/api/gate/open", authenticateFirebaseUser, async (req, res) => {
+  let claimedGateCooldownUntilClient = 0;
+
+  try {
+    if (!isEwelinkGateConfigured()) {
+      return res.status(503).json({ error: "Управление воротами пока не настроено" });
+    }
+
+    const actorId = String(req.user?.uid || "").trim();
+    const actorSnapshot = await users.doc(actorId).get();
+    if (!actorSnapshot.exists) {
+      return res.status(403).json({ error: "Профиль пользователя не найден" });
+    }
+
+    const actorData = actorSnapshot.data() || {};
+    const actorRole = String(actorData.role || "USER");
+    const actorName = String(actorData.fullName || req.user.name || "Пользователь");
+    const actorPlotName = Array.isArray(actorData.plots) && actorData.plots.length > 0
+      ? actorData.plots.map(String).filter(Boolean).join(", ")
+      : String(actorData.plotName || "");
+    const actorBalance = Number(actorData.balance || 0);
+
+    if (!["USER", "MODERATOR", "ADMIN", "TESTER"].includes(actorRole)) {
+      return res.status(403).json({ error: "Недостаточно прав для открытия ворот" });
+    }
+    if (actorBalance <= gateDebtBlockThreshold) {
+      return res.status(403).json({ error: "Открытие ворот недоступно при задолженности от 5 000 ₽." });
+    }
+
+    const gateSnapshot = await firestore.collection("app_settings").doc("app_gate").get();
+    const maintenanceEnabled = Boolean(gateSnapshot.data()?.maintenanceEnabled ?? false);
+    if (maintenanceEnabled && !["ADMIN", "TESTER"].includes(actorRole)) {
+      return res.status(503).json({ error: "Сайт находится в режиме технических работ" });
+    }
+
+    const now = Date.now();
+    const lastUserOpenAt = Number(gateCooldownByUser.get(actorId) ?? 0);
+    if (now - lastUserOpenAt < gateOpenCooldownMs) {
+      const waitSeconds = Math.ceil((gateOpenCooldownMs - (now - lastUserOpenAt)) / 1000);
+      return res.status(429).json({
+        error: `Повторно открыть ворота можно через ${waitSeconds} сек.`,
+        cooldownUntilClient: lastUserOpenAt + gateOpenCooldownMs
+      });
+    }
+
+    try {
+      await firestore.runTransaction(async (transaction) => {
+        const statusSnapshot = await transaction.get(gateStatusRef);
+        const cooldownUntilClient = Number(statusSnapshot.data()?.cooldownUntilClient || 0);
+
+        if (cooldownUntilClient > now) {
+          const waitSeconds = Math.ceil((cooldownUntilClient - now) / 1000);
+          const error = new Error(`Ворота уже открывали. Подождите ${waitSeconds} сек.`);
+          error.httpStatus = 429;
+          error.cooldownUntilClient = cooldownUntilClient;
+          throw error;
+        }
+
+        claimedGateCooldownUntilClient = now + gateGlobalCooldownMs;
+        transaction.set(gateStatusRef, {
+          status: "OPENING",
+          cooldownUntilClient: claimedGateCooldownUntilClient,
+          lastOpenedAtClient: now,
+          lastOpenedById: actorId,
+          lastOpenedByName: actorName,
+          lastOpenedByRole: actorRole,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAtClient: now
+        }, { merge: true });
+      });
+    } catch (error) {
+      if (error.httpStatus) {
+        return res.status(error.httpStatus).json({
+          error: error.message,
+          cooldownUntilClient: Number(error.cooldownUntilClient || 0)
+        });
+      }
+      throw error;
+    }
+
+    gateCooldownByUser.set(actorId, now);
+    gateGlobalLastOpenedAt = now;
+
+    await openEwelinkGate();
+
+    await Promise.all([
+      gateStatusRef.set({
+        status: "COOLDOWN",
+        cooldownUntilClient: claimedGateCooldownUntilClient,
+        lastOpenedAtClient: now,
+        lastOpenedById: actorId,
+        lastOpenedByName: actorName,
+        lastOpenedByRole: actorRole,
+        lastError: "",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAtClient: Date.now()
+      }, { merge: true }),
+      firestore.collection("audit_logs").doc().set({
+        actorId,
+        actorName,
+        actorRole,
+        title: "Открыты ворота",
+        message: "Пользователь отправил команду открытия ворот.",
+        targetUserId: actorId,
+        targetUserName: actorName,
+        targetPlotName: actorPlotName,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAtClient: Date.now()
+      })
+    ]);
+
+    console.log(`[gate] open requested by=${actorId} role=${actorRole}`);
+    return res.json({ ok: true, cooldownUntilClient: claimedGateCooldownUntilClient });
+  } catch (error) {
+    if (claimedGateCooldownUntilClient > 0) {
+      await gateStatusRef.set({
+        status: "ERROR",
+        cooldownUntilClient: claimedGateCooldownUntilClient,
+        lastError: error.message || "Не удалось открыть ворота",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAtClient: Date.now()
+      }, { merge: true }).catch(() => undefined);
+    }
+
+    console.error("[gate] open failed", error);
+    return res.status(500).json({ error: error.message || "Не удалось открыть ворота" });
+  }
+});
+
 app.post("/api/notifications/publish", authenticateFirebaseUser, async (req, res) => {
   try {
     const title = String(req.body?.title || "").trim();
@@ -771,6 +926,247 @@ app.get("/return", (req, res) => {
 app.listen(Number(PORT), () => {
   console.log(`Payments backend listening on port ${PORT}`);
 });
+
+function isEwelinkGateConfigured() {
+  return Boolean(
+    String(EWELINK_APP_ID || "").trim() &&
+    String(EWELINK_APP_SECRET || "").trim() &&
+    String(EWELINK_DEVICE_ID || "").trim()
+  );
+}
+
+function getEwelinkHost(region) {
+  const normalizedRegion = String(region || "").trim().toLowerCase();
+  const host = ewelinkApiHosts[normalizedRegion];
+  if (!host) {
+    throw new Error("Регион eWeLink не настроен");
+  }
+  return host;
+}
+
+function readEwelinkTokensFromEnv() {
+  const region = String(EWELINK_REGION || "").trim().toLowerCase();
+  const accessToken = String(EWELINK_ACCESS_TOKEN || "").trim();
+  const refreshToken = String(EWELINK_REFRESH_TOKEN || "").trim();
+  const atExpiredTime = Number(EWELINK_AT_EXPIRED_TIME || 0);
+  const rtExpiredTime = Number(EWELINK_RT_EXPIRED_TIME || 0);
+
+  if (!region && !accessToken && !refreshToken) {
+    return null;
+  }
+
+  return {
+    region,
+    accessToken,
+    refreshToken,
+    atExpiredTime,
+    rtExpiredTime,
+    updatedAtClient: Date.now()
+  };
+}
+
+async function loadEwelinkTokens() {
+  if (ewelinkTokenCache) {
+    return ewelinkTokenCache;
+  }
+
+  const snapshot = await gateTokenRef.get();
+  if (snapshot.exists) {
+    const data = snapshot.data() || {};
+    ewelinkTokenCache = {
+      region: String(data.region || "").trim().toLowerCase(),
+      accessToken: String(data.accessToken || "").trim(),
+      refreshToken: String(data.refreshToken || "").trim(),
+      atExpiredTime: Number(data.atExpiredTime || 0),
+      rtExpiredTime: Number(data.rtExpiredTime || 0)
+    };
+    return ewelinkTokenCache;
+  }
+
+  const envTokens = readEwelinkTokensFromEnv();
+  if (!envTokens) {
+    throw new Error("Токены eWeLink не настроены на сервере");
+  }
+
+  await gateTokenRef.set({
+    ...envTokens,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  }, { merge: true });
+  ewelinkTokenCache = envTokens;
+  return ewelinkTokenCache;
+}
+
+async function saveEwelinkTokens(tokens) {
+  ewelinkTokenCache = tokens;
+  await gateTokenRef.set({
+    region: tokens.region,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    atExpiredTime: Number(tokens.atExpiredTime || 0),
+    rtExpiredTime: Number(tokens.rtExpiredTime || 0),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAtClient: Date.now()
+  }, { merge: true });
+}
+
+function signEwelinkPayload(payload) {
+  const bodyText = typeof payload === "string" ? payload : JSON.stringify(payload);
+  return crypto.createHmac("sha256", EWELINK_APP_SECRET).update(bodyText).digest("base64");
+}
+
+async function ewelinkRequest({ region, method = "GET", path, query, body, accessToken, signed = false }) {
+  const url = new URL(path, getEwelinkHost(region));
+  if (query) {
+    Object.entries(query).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        url.searchParams.set(key, String(value));
+      }
+    });
+  }
+
+  const headers = {
+    "X-CK-Appid": EWELINK_APP_ID
+  };
+  const request = { method, headers };
+
+  if (body !== undefined) {
+    const bodyText = JSON.stringify(body);
+    headers["Content-Type"] = "application/json";
+    request.body = bodyText;
+    if (signed) {
+      headers.Authorization = `Sign ${signEwelinkPayload(bodyText)}`;
+    }
+  }
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  const response = await fetch(url, request);
+  const responseText = await response.text();
+  let payload;
+  try {
+    payload = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    throw new Error(`eWeLink вернул некорректный ответ: HTTP ${response.status}`);
+  }
+
+  if (!response.ok || payload.error !== 0) {
+    const error = new Error(translateEwelinkError(payload.error, payload.msg));
+    error.errorCode = payload.error;
+    error.httpStatus = response.status;
+    throw error;
+  }
+
+  return payload.data || {};
+}
+
+function translateEwelinkError(code, message) {
+  if (code === 30022) {
+    return "Модуль ворот сейчас офлайн. Попробуйте позже.";
+  }
+  if (code === 4002) {
+    return "eWeLink не принял команду. Проверьте, что устройство Door онлайн.";
+  }
+  if (code === 401 || code === 402) {
+    return "Серверу нужно обновить доступ eWeLink. Попробуйте еще раз.";
+  }
+  if (code === 412) {
+    return "eWeLink временно ограничил частые запросы. Подождите немного.";
+  }
+  return message || "eWeLink не принял команду открытия ворот";
+}
+
+async function refreshEwelinkTokens(tokens) {
+  if (!tokens.refreshToken) {
+    throw new Error("Refresh token eWeLink не настроен на сервере");
+  }
+
+  const body = { rt: tokens.refreshToken };
+  const data = await ewelinkRequest({
+    region: tokens.region,
+    method: "POST",
+    path: "/v2/user/refresh",
+    body,
+    signed: true
+  });
+
+  const now = Date.now();
+  const refreshed = {
+    region: tokens.region,
+    accessToken: String(data.at || "").trim(),
+    refreshToken: String(data.rt || "").trim(),
+    atExpiredTime: Number(data.atExpiredTime || now + 29 * 24 * 60 * 60 * 1000),
+    rtExpiredTime: Number(data.rtExpiredTime || now + 59 * 24 * 60 * 60 * 1000)
+  };
+
+  if (!refreshed.accessToken || !refreshed.refreshToken) {
+    throw new Error("eWeLink не вернул обновленные токены");
+  }
+
+  await saveEwelinkTokens(refreshed);
+  return refreshed;
+}
+
+async function getValidEwelinkTokens() {
+  const tokens = await loadEwelinkTokens();
+  if (!tokens.region) {
+    throw new Error("Регион eWeLink не настроен");
+  }
+  if (!tokens.accessToken) {
+    return await refreshEwelinkTokens(tokens);
+  }
+  if (tokens.atExpiredTime && tokens.atExpiredTime - Date.now() < 60_000) {
+    return await refreshEwelinkTokens(tokens);
+  }
+  return tokens;
+}
+
+async function setEwelinkGateSwitch(value) {
+  let tokens = await getValidEwelinkTokens();
+  try {
+    await ewelinkRequest({
+      region: tokens.region,
+      method: "POST",
+      path: "/v2/device/thing/status",
+      body: {
+        type: 1,
+        id: EWELINK_DEVICE_ID,
+        params: { switch: value }
+      },
+      accessToken: tokens.accessToken
+    });
+  } catch (error) {
+    if (error.errorCode !== 401 && error.errorCode !== 402) {
+      throw error;
+    }
+
+    tokens = await refreshEwelinkTokens(tokens);
+    await ewelinkRequest({
+      region: tokens.region,
+      method: "POST",
+      path: "/v2/device/thing/status",
+      body: {
+        type: 1,
+        id: EWELINK_DEVICE_ID,
+        params: { switch: value }
+      },
+      accessToken: tokens.accessToken
+    });
+  }
+}
+
+async function openEwelinkGate() {
+  await setEwelinkGateSwitch("on");
+  await new Promise((resolve) => setTimeout(resolve, 700));
+
+  try {
+    await setEwelinkGateSwitch("off");
+  } catch (error) {
+    console.warn("[gate] fallback switch-off failed", error.message || error);
+  }
+}
 
 async function authenticateFirebaseUser(req, res, next) {
   try {
