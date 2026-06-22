@@ -11,6 +11,7 @@ const EWELINK_API_HOSTS = {
 }
 
 const DEFAULT_GATE_COOLDOWN_MS = 10_000
+const DEFAULT_GATE_OPENING_LOCK_MS = 30_000
 const GATE_DEBT_BLOCK_THRESHOLD = -5000
 
 let firebaseJwksCache = null
@@ -87,7 +88,11 @@ async function openGate(request, env) {
     }
 
     const now = Date.now()
-    const cooldownMs = Number(env.EWELINK_GATE_GLOBAL_COOLDOWN_MS || DEFAULT_GATE_COOLDOWN_MS)
+    const cooldownMs = Math.max(DEFAULT_GATE_COOLDOWN_MS, Number(env.EWELINK_GATE_GLOBAL_COOLDOWN_MS || 0))
+    const openingLockMs = Math.max(
+      cooldownMs,
+      Number(env.EWELINK_GATE_OPENING_LOCK_MS || DEFAULT_GATE_OPENING_LOCK_MS),
+    )
     const transaction = await beginFirestoreTransaction(env)
 
     try {
@@ -109,7 +114,7 @@ async function openGate(request, env) {
         )
       }
 
-      claimedCooldownUntilClient = now + cooldownMs
+      claimedCooldownUntilClient = now + openingLockMs
       await commitFirestoreTransaction(env, transaction, [
         setWrite(env, 'app_settings/gate_status', {
           status: 'OPENING',
@@ -132,10 +137,11 @@ async function openGate(request, env) {
 
     await openEwelinkGate(env)
 
+    const finalCooldownUntilClient = Date.now() + cooldownMs
     await Promise.all([
       setFirestoreDocument(env, 'app_settings/gate_status', {
         status: 'COOLDOWN',
-        cooldownUntilClient: claimedCooldownUntilClient,
+        cooldownUntilClient: finalCooldownUntilClient,
         lastOpenedAtClient: now,
         lastOpenedById: actorId,
         lastOpenedByName: actorName,
@@ -157,7 +163,7 @@ async function openGate(request, env) {
       }),
     ])
 
-    return jsonResponse({ ok: true, cooldownUntilClient: claimedCooldownUntilClient }, 200, request, env)
+    return jsonResponse({ ok: true, cooldownUntilClient: finalCooldownUntilClient }, 200, request, env)
   } catch (error) {
     if (claimedCooldownUntilClient > 0) {
       await setFirestoreDocument(env, 'app_settings/gate_status', {
