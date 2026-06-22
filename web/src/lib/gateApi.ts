@@ -7,6 +7,10 @@ export type GateOpenResponse = {
 }
 
 function apiBaseUrl() {
+  if (typeof window !== 'undefined' && window.location.hostname === 'malinkieco.rethavo.ru') {
+    return ''
+  }
+
   return String(import.meta.env.VITE_APP_API_BASE_URL ?? '').trim().replace(/\/$/, '')
 }
 
