@@ -157,17 +157,21 @@ function App() {
 
   const isStaff = profile?.role === 'ADMIN' || profile?.role === 'MODERATOR'
   const gateCooldownUntilClient = Math.max(Number(gateStatus.cooldownUntilClient || 0), localGateCooldownUntil)
+  const gateOpeningLockUntilClient =
+    gateStatus.status === 'OPENING' ? Number(gateStatus.openingLockUntilClient || 0) : 0
   const gateCooldownRemainingSeconds = Math.max(0, Math.ceil((gateCooldownUntilClient - gateClockNow) / 1000))
   const gateCoolingDown = gateCooldownRemainingSeconds > 0
+  const gateOpeningGlobally = gateOpeningLockUntilClient > gateClockNow
+  const gateClockUntilClient = Math.max(gateCooldownUntilClient, gateOpeningLockUntilClient)
   const gateDebtBlocked = Number(profile?.balance ?? 0) <= GATE_DEBT_BLOCK_THRESHOLD
-  const gateDisabled = gateOpening || gateCoolingDown || gateDebtBlocked
+  const gateDisabled = gateOpening || gateOpeningGlobally || gateCoolingDown || gateDebtBlocked
   const gateButtonHint = gateDebtBlocked
     ? 'Недоступно при долге от 5 000 ₽'
+    : gateOpening || gateOpeningGlobally
+      ? 'Ворота открываются'
     : gateCoolingDown
       ? `Подождите ${gateCooldownRemainingSeconds} сек.`
-      : gateOpening
-        ? 'Отправляем команду'
-        : 'Доступно'
+      : 'Доступно'
   const pendingPaymentRequestsCount = paymentRequests.filter((request) => request.status === 'PENDING').length
   const pendingRegistrationRequestsCount =
     registrationRequests.filter((request) => request.status === 'PENDING').length
@@ -187,19 +191,19 @@ function App() {
   )
 
   useEffect(() => {
-    if (gateCooldownUntilClient <= Date.now()) return
+    if (gateClockUntilClient <= Date.now()) return
 
     const timer = window.setInterval(() => {
       const nextNow = Date.now()
       setGateClockNow(nextNow)
-      if (nextNow >= gateCooldownUntilClient) {
+      if (nextNow >= gateClockUntilClient) {
         window.clearInterval(timer)
       }
     }, 500)
 
     setGateClockNow(Date.now())
     return () => window.clearInterval(timer)
-  }, [gateCooldownUntilClient])
+  }, [gateClockUntilClient])
 
   useEffect(() => {
     clearRequestedTabFromUrl()
@@ -526,6 +530,10 @@ function App() {
     }
     if (gateCoolingDown) {
       showNotice(`Ворота уже открывали. Подождите ${gateCooldownRemainingSeconds} сек.`)
+      return
+    }
+    if (gateOpeningGlobally) {
+      showNotice('Ворота уже открываются. Подождите несколько секунд.')
       return
     }
 
@@ -1233,7 +1241,7 @@ function App() {
           </div>
           <div className="topbar-control-stack" aria-label="Быстрые действия">
             <button
-              className={`gate-open-button ${gateOpening ? 'is-busy' : ''} ${gateCoolingDown ? 'is-cooling' : ''} ${gateDebtBlocked ? 'is-debt-blocked' : ''}`}
+              className={`gate-open-button ${gateOpening || gateOpeningGlobally ? 'is-busy' : ''} ${gateCoolingDown ? 'is-cooling' : ''} ${gateDebtBlocked ? 'is-debt-blocked' : ''}`}
               type="button"
               onClick={() => void handleOpenGate()}
               disabled={gateDisabled}
