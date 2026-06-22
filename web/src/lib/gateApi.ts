@@ -1,5 +1,7 @@
 import { auth } from './firebase'
 
+const PRODUCTION_GATE_API_BASE_URL = 'https://malinkieco-gate.kiriklass228.workers.dev'
+
 export type GateOpenResponse = {
   ok: boolean
   error?: string
@@ -8,7 +10,7 @@ export type GateOpenResponse = {
 
 function apiBaseUrl() {
   if (typeof window !== 'undefined' && window.location.hostname === 'malinkieco.rethavo.ru') {
-    return ''
+    return PRODUCTION_GATE_API_BASE_URL
   }
 
   return String(import.meta.env.VITE_APP_API_BASE_URL ?? '').trim().replace(/\/$/, '')

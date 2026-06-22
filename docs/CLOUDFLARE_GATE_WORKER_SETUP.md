@@ -1,17 +1,32 @@
 # Cloudflare Worker для ворот
 
-Worker нужен, чтобы сайт не хранил секреты eWeLink в браузере. Сайт вызывает `/api/gate/open`, а Cloudflare Worker уже проверяет пользователя через Firebase, проверяет долг и отправляет команду в eWeLink.
+Worker нужен, чтобы сайт не хранил секреты eWeLink в браузере. В production сайт открывается напрямую с GitHub Pages, а кнопка ворот обращается к отдельному Cloudflare Worker:
 
-## 1. Создать Worker
+```text
+https://malinkieco-gate.kiriklass228.workers.dev/api/gate/open
+```
+
+Так основной сайт не зависит от Cloudflare-прокси на домене `malinkieco.rethavo.ru`.
+
+## 1. DNS для сайта
+
+Для записи `malinkieco.rethavo.ru` в Cloudflare DNS должен быть режим `DNS only`:
+
+```text
+malinkieco CNAME rethavo-systems.github.io DNS only
+```
+
+Не включай `Proxied` для этой записи, иначе весь сайт снова пойдет через Cloudflare и может не открываться без VPN у части пользователей.
+
+## 2. Worker
 
 1. Открой Cloudflare Dashboard.
 2. Перейди в `Workers & Pages`.
-3. Нажми `Create application` -> `Worker` -> `Create Worker`.
-4. Название можно указать `malinkieco-gate`.
-5. В редактор Worker вставь код из `cloudflare/gate-worker.js`.
-6. Сохрани и задеплой Worker.
+3. Создай Worker с именем `malinkieco-gate`.
+4. В редактор Worker вставь код из `cloudflare/gate-worker.js`.
+5. Сохрани и задеплой Worker.
 
-## 2. Добавить переменные
+## 3. Переменные Worker
 
 В настройках Worker открой `Settings` -> `Variables and Secrets`.
 
@@ -38,23 +53,12 @@ EWELINK_REFRESH_TOKEN=текущий refresh token eWeLink
 
 `FIREBASE_PRIVATE_KEY` нужно вставлять целиком, включая строки `-----BEGIN PRIVATE KEY-----` и `-----END PRIVATE KEY-----`. Если Cloudflare не принимает многострочное значение, вставь ключ одной строкой с `\n` вместо переносов.
 
-## 3. Подключить маршрут к сайту
-
-1. В Cloudflare открой сайт `rethavo.ru`.
-2. Перейди в `Workers Routes`.
-3. Нажми `Add route`.
-4. Route: `malinkieco.rethavo.ru/api/*`
-5. Worker: `malinkieco-gate`
-6. Сохрани.
-
-После этого фронтенду не нужен `VITE_APP_API_BASE_URL`: кнопка ворот будет обращаться на тот же домен, в `/api/gate/open`.
-
 ## 4. Проверка
 
 Открой:
 
 ```text
-https://malinkieco.rethavo.ru/api/gate/health
+https://malinkieco-gate.kiriklass228.workers.dev/api/gate/health
 ```
 
 Ожидаемый ответ:
@@ -63,4 +67,4 @@ https://malinkieco.rethavo.ru/api/gate/health
 {"ok":true,"service":"malinkieco-gate-worker"}
 ```
 
-Если health работает, можно проверять кнопку `Открыть ворота` на сайте. Команды открытия пишутся в `audit_logs`, а общий таймаут на 10 секунд хранится в `app_settings/gate_status`.
+После этого можно проверять кнопку `Открыть ворота` на сайте. Команды открытия пишутся в `audit_logs`, а общий таймаут на 10 секунд хранится в `app_settings/gate_status`.
