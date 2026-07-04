@@ -18,3 +18,4 @@
 /backend/.env
 .secrets/
 .vite-local*.log
+.wrangler/
