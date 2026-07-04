@@ -64,6 +64,346 @@
   margin-top: 32px;
 }
 
+.maintenance-shell {
+  overflow: hidden;
+  justify-content: space-between;
+  background:
+    radial-gradient(circle at 22% 14%, rgba(255, 111, 145, 0.18), transparent 28%),
+    radial-gradient(circle at 78% 18%, rgba(67, 186, 222, 0.15), transparent 30%),
+    linear-gradient(180deg, #071525 0%, #102744 100%);
+}
+
+.maintenance-shell::before,
+.maintenance-shell::after {
+  content: '';
+  position: fixed;
+  pointer-events: none;
+  border-radius: 999px;
+  filter: blur(64px);
+  opacity: 0.32;
+  animation: maintenanceDrift 12s ease-in-out infinite alternate;
+}
+
+.maintenance-shell::before {
+  width: 240px;
+  height: 240px;
+  top: 24%;
+  left: 20%;
+  background: rgba(255, 111, 145, 0.3);
+}
+
+.maintenance-shell::after {
+  width: 260px;
+  height: 260px;
+  right: 18%;
+  bottom: 22%;
+  background: rgba(91, 170, 255, 0.2);
+  animation-delay: -3s;
+}
+
+.maintenance-card {
+  width: min(620px, 100%);
+  margin: clamp(48px, 12vh, 112px) auto 0;
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  padding: clamp(22px, 4vw, 30px);
+  border-radius: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(145deg, rgba(11, 26, 45, 0.92), rgba(7, 18, 32, 0.96)),
+    radial-gradient(circle at 12% 0%, rgba(255, 111, 145, 0.15), transparent 36%);
+  box-shadow: 0 30px 90px rgba(0, 8, 20, 0.42);
+  backdrop-filter: blur(22px);
+  animation: maintenanceEnter 520ms ease both;
+}
+
+.maintenance-card::before {
+  content: '';
+  position: absolute;
+  inset: -60% -150%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      112deg,
+      transparent 39%,
+      rgba(255, 255, 255, 0.02) 44%,
+      rgba(255, 176, 197, 0.18) 49%,
+      rgba(126, 226, 226, 0.14) 53%,
+      rgba(255, 255, 255, 0.03) 58%,
+      transparent 64%
+    );
+  opacity: 0;
+  transform: translateX(-64%) rotate(0.001deg);
+  will-change: transform, opacity;
+  animation: maintenanceMirrorSweep 6.4s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+}
+
+.maintenance-card::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(255, 143, 115, 0.1), transparent 32%),
+    radial-gradient(circle at 82% 18%, rgba(126, 226, 226, 0.1), transparent 30%);
+}
+
+.maintenance-card--error::after {
+  background:
+    radial-gradient(circle at 18% 20%, rgba(255, 91, 120, 0.14), transparent 32%),
+    radial-gradient(circle at 82% 18%, rgba(255, 143, 115, 0.11), transparent 30%);
+}
+
+.maintenance-card__top,
+.maintenance-card__main {
+  position: relative;
+  z-index: 1;
+}
+
+.maintenance-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: clamp(26px, 5vw, 40px);
+}
+
+.maintenance-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.maintenance-brand__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.maintenance-brand__text span {
+  color: #f6f9ff;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.maintenance-brand__text strong {
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 176, 197, 0.28);
+  color: #ffd0dc;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+}
+
+.maintenance-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 176, 197, 0.22);
+  background: rgba(255, 176, 197, 0.08);
+  color: #ffd7e2;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.maintenance-chip::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ff8f73;
+  box-shadow: 0 0 0 0 rgba(255, 143, 115, 0.5);
+  animation: maintenancePulse 1.8s ease-out infinite;
+}
+
+.maintenance-card--error .maintenance-chip {
+  border-color: rgba(255, 111, 145, 0.28);
+  background: rgba(255, 111, 145, 0.09);
+  color: #ffd0dc;
+}
+
+.maintenance-card--error .maintenance-chip::before {
+  background: #ff5f85;
+  box-shadow: 0 0 0 0 rgba(255, 95, 133, 0.5);
+}
+
+.maintenance-card__main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 22px;
+  align-items: center;
+}
+
+.maintenance-spinner {
+  position: relative;
+  width: 78px;
+  height: 78px;
+  flex: 0 0 auto;
+  border-radius: 24px;
+  border: 1px solid rgba(126, 226, 226, 0.22);
+  background:
+    linear-gradient(145deg, rgba(255, 176, 197, 0.09), rgba(126, 226, 226, 0.12)),
+    rgba(16, 39, 62, 0.72);
+  box-shadow:
+    inset 0 0 30px rgba(126, 226, 226, 0.1),
+    0 18px 42px rgba(0, 8, 20, 0.28);
+}
+
+.maintenance-spinner::before,
+.maintenance-spinner::after,
+.maintenance-spinner span,
+.maintenance-spinner i {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+}
+
+.maintenance-spinner::before {
+  inset: 15px;
+  border: 2px solid rgba(220, 232, 247, 0.12);
+  border-top-color: #ff8f73;
+  border-right-color: rgba(126, 226, 226, 0.7);
+  animation: maintenanceSpin 1.5s linear infinite;
+}
+
+.maintenance-spinner::after {
+  inset: 26px;
+  border: 2px solid rgba(255, 176, 197, 0.16);
+  border-bottom-color: rgba(255, 176, 197, 0.78);
+  animation: maintenanceSpin 2.4s linear infinite reverse;
+}
+
+.maintenance-spinner span:first-child {
+  width: 10px;
+  height: 10px;
+  top: 18px;
+  right: 17px;
+  background: #ff8f73;
+  box-shadow: 0 0 18px rgba(255, 143, 115, 0.65);
+  animation: maintenanceFloatDot 1.9s ease-in-out infinite;
+}
+
+.maintenance-spinner span:nth-child(2) {
+  width: 8px;
+  height: 8px;
+  left: 18px;
+  bottom: 17px;
+  background: #7ee2e2;
+  box-shadow: 0 0 16px rgba(126, 226, 226, 0.58);
+  animation: maintenanceFloatDot 1.9s ease-in-out infinite reverse;
+}
+
+.maintenance-spinner i {
+  inset: 35px;
+  background: rgba(246, 249, 255, 0.88);
+  box-shadow: 0 0 20px rgba(246, 249, 255, 0.28);
+}
+
+.maintenance-alert {
+  position: relative;
+  width: 78px;
+  height: 78px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 111, 145, 0.28);
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 208, 220, 0.18), transparent 36%),
+    linear-gradient(145deg, rgba(255, 95, 133, 0.2), rgba(255, 143, 115, 0.09)),
+    rgba(37, 20, 38, 0.78);
+  box-shadow:
+    inset 0 0 32px rgba(255, 111, 145, 0.12),
+    0 18px 42px rgba(0, 8, 20, 0.28);
+}
+
+.maintenance-alert::before {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 208, 220, 0.13);
+  border-top-color: rgba(255, 95, 133, 0.72);
+  animation: maintenanceSpin 2.2s linear infinite;
+}
+
+.maintenance-alert::after {
+  content: '';
+  position: absolute;
+  inset: 23px;
+  border-radius: 999px;
+  background: rgba(255, 95, 133, 0.12);
+  animation: maintenanceAlertPulse 1.2s ease-in-out infinite;
+}
+
+.maintenance-alert span {
+  position: relative;
+  z-index: 1;
+  color: #fff2f6;
+  font-size: 2.45rem;
+  line-height: 1;
+  font-weight: 950;
+  text-shadow: 0 0 18px rgba(255, 95, 133, 0.6);
+  animation: maintenanceAlertBlink 1.2s ease-in-out infinite;
+}
+
+.maintenance-card h1 {
+  margin: 0;
+  color: #f6f9ff;
+  font-size: clamp(1.9rem, 4vw, 2.85rem);
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+}
+
+.maintenance-message {
+  max-width: 480px;
+  margin: 12px 0 0;
+  color: rgba(227, 237, 248, 0.78);
+  font-size: 1rem;
+  font-weight: 640;
+  line-height: 1.5;
+}
+
+.maintenance-countdown {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 13px;
+  border-radius: 18px;
+  border: 1px solid rgba(126, 226, 226, 0.16);
+  background: rgba(126, 226, 226, 0.08);
+  color: rgba(227, 237, 248, 0.78);
+  font-size: 0.86rem;
+  font-weight: 760;
+}
+
+.maintenance-countdown strong {
+  color: #dffcff;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.maintenance-card--error .maintenance-countdown {
+  border-color: rgba(255, 111, 145, 0.18);
+  background: rgba(255, 111, 145, 0.08);
+}
+
+.maintenance-card--error .maintenance-countdown strong {
+  color: #ffd0dc;
+}
+
 .auth-layout {
   display: grid;
   grid-template-columns: 1.15fr 0.95fr;
@@ -1769,6 +2109,90 @@ button:disabled {
   margin-top: 18px;
 }
 
+@keyframes maintenanceEnter {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes maintenanceDrift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  to {
+    transform: translate3d(24px, 16px, 0) scale(1.08);
+  }
+}
+
+@keyframes maintenanceMirrorSweep {
+  0%,
+  16% {
+    opacity: 0;
+    transform: translateX(-64%) rotate(0.001deg);
+  }
+
+  28%,
+  62% {
+    opacity: 0.82;
+  }
+
+  78%,
+  100% {
+    opacity: 0;
+    transform: translateX(64%) rotate(0.001deg);
+  }
+}
+
+@keyframes maintenanceSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes maintenanceFloatDot {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  50% {
+    transform: translate3d(2px, -3px, 0) scale(1.12);
+  }
+}
+
+@keyframes maintenanceAlertPulse {
+  0%,
+  100% {
+    opacity: 0.48;
+    transform: scale(0.92);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes maintenanceAlertBlink {
+  0%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  50% {
+    opacity: 0.72;
+    transform: translateY(-1px);
+  }
+}
+
 @media (max-width: 900px) {
   .auth-layout,
   .topbar {
@@ -1835,6 +2259,75 @@ button:disabled {
   .topbar,
   .notice-bar {
     border-radius: 22px;
+  }
+
+  .maintenance-shell {
+    padding-top: 18px;
+  }
+
+  .maintenance-brand {
+    min-width: 0;
+  }
+
+  .maintenance-card {
+    margin-top: 18px;
+    padding: 22px;
+    border-radius: 24px;
+  }
+
+  .maintenance-card__top {
+    align-items: flex-start;
+    margin-bottom: 26px;
+  }
+
+  .maintenance-brand__text {
+    flex-wrap: wrap;
+  }
+
+  .maintenance-chip {
+    min-height: 30px;
+    padding-inline: 11px;
+  }
+
+  .maintenance-card__main {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .maintenance-spinner,
+  .maintenance-alert {
+    width: 58px;
+    height: 58px;
+    border-radius: 18px;
+  }
+
+  .maintenance-spinner::before,
+  .maintenance-alert::before {
+    inset: 11px;
+  }
+
+  .maintenance-spinner::after,
+  .maintenance-alert::after {
+    inset: 20px;
+  }
+
+  .maintenance-spinner i {
+    inset: 26px;
+  }
+
+  .maintenance-alert span {
+    font-size: 2rem;
+  }
+
+  .maintenance-countdown {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+
+  .maintenance-card h1 {
+    font-size: clamp(1.9rem, 10vw, 2.7rem);
   }
 
   .auth-box,
