@@ -1,0 +1,13 @@
+name = "malinkieco-gate"
+main = "gate-worker.js"
+compatibility_date = "2026-06-22"
+workers_dev = true
+preview_urls = false
+
+[vars]
+APP_ORIGIN = "https://malinkieco.rethavo.ru"
+FIREBASE_PROJECT_ID = "malinkiecodb"
+EWELINK_REGION = "eu"
+EWELINK_DEVICE_ID = "100185ec48"
+EWELINK_GATE_GLOBAL_COOLDOWN_MS = "10000"
+EWELINK_GATE_OPENING_LOCK_MS = "30000"
