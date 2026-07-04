@@ -33,7 +33,7 @@ export default {
     }
 
     if (request.method !== 'POST' || url.pathname !== '/api/gate/open') {
-      return jsonResponse({ ok: false, error: 'Not found' }, 404, request, env)
+      return jsonResponse({ ok: false, error: 'Маршрут не найден.' }, 404, request, env)
     }
 
     return openGate(request, env)
@@ -74,7 +74,7 @@ async function openGate(request, env) {
       return jsonResponse({ ok: false, error: 'Недостаточно прав для открытия ворот.' }, 403, request, env)
     }
 
-    if (actorBalance <= GATE_DEBT_BLOCK_THRESHOLD) {
+    if (actorRole !== 'ADMIN' && actorBalance <= GATE_DEBT_BLOCK_THRESHOLD) {
       return jsonResponse(
         { ok: false, error: 'Открытие ворот недоступно при задолженности от 5 000 ₽.' },
         403,
@@ -188,14 +188,14 @@ async function openGate(request, env) {
         status: 'ERROR',
         cooldownUntilClient: 0,
         openingLockUntilClient: 0,
-        lastError: error?.message || 'Не удалось открыть ворота.',
+        lastError: publicGateErrorMessage(error),
         updatedAtClient: Date.now(),
       }).catch(() => undefined)
     }
 
     console.error('[gate-worker] open failed', error)
     return jsonResponse(
-      { ok: false, error: error?.publicMessage || error?.message || 'Не удалось открыть ворота.' },
+      { ok: false, error: publicGateErrorMessage(error) },
       Number(error?.httpStatus || 500),
       request,
       env,
@@ -704,6 +704,36 @@ function translateEwelinkError(code, message) {
   if (code === 401 || code === 402) return 'Серверу нужно обновить доступ eWeLink. Попробуйте еще раз.'
   if (code === 412) return 'eWeLink временно ограничил частые запросы. Подождите немного.'
   return message || 'eWeLink не принял команду открытия ворот.'
+}
+
+function publicGateErrorMessage(error) {
+  const message = String(error?.publicMessage || error?.message || '').trim()
+
+  if (!message) return 'Не удалось открыть ворота. Попробуйте позже.'
+  if (/[А-Яа-яЁё]/.test(message)) return message
+
+  const normalizedMessage = message.toLowerCase()
+  if (
+    normalizedMessage.includes('failed to fetch') ||
+    normalizedMessage.includes('fetch failed') ||
+    normalizedMessage.includes('network') ||
+    normalizedMessage.includes('timeout')
+  ) {
+    return 'Не удалось связаться с сервером ворот. Попробуйте позже.'
+  }
+  if (
+    normalizedMessage.includes('firestore') ||
+    normalizedMessage.includes('datastore') ||
+    normalizedMessage.includes('transaction') ||
+    normalizedMessage.includes('commit')
+  ) {
+    return 'Не удалось связаться с базой данных. Попробуйте позже.'
+  }
+  if (normalizedMessage.includes('google') || normalizedMessage.includes('oauth')) {
+    return 'Не удалось подтвердить служебный доступ. Попробуйте позже.'
+  }
+
+  return 'Не удалось открыть ворота. Попробуйте позже.'
 }
 
 async function signHmacSha256(message, secret) {

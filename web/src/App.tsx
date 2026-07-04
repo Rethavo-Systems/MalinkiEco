@@ -156,7 +156,8 @@ function App() {
     auditLogs,
   } = useResidentData(maintenanceLocked ? null : profile, activeTab)
 
-  const isStaff = profile?.role === 'ADMIN' || profile?.role === 'MODERATOR'
+  const isAdmin = profile?.role === 'ADMIN'
+  const isStaff = isAdmin || profile?.role === 'MODERATOR'
   const gateCooldownUntilClient = Math.max(Number(gateStatus.cooldownUntilClient || 0), localGateCooldownUntil)
   const gateOpeningLockUntilClient =
     gateStatus.status === 'OPENING' ? Number(gateStatus.openingLockUntilClient || 0) : 0
@@ -164,7 +165,7 @@ function App() {
   const gateCoolingDown = gateCooldownRemainingSeconds > 0
   const gateOpeningGlobally = gateOpeningLockUntilClient > gateClockNow
   const gateClockUntilClient = Math.max(gateCooldownUntilClient, gateOpeningLockUntilClient)
-  const gateDebtBlocked = Number(profile?.balance ?? 0) <= GATE_DEBT_BLOCK_THRESHOLD
+  const gateDebtBlocked = !isAdmin && Number(profile?.balance ?? 0) <= GATE_DEBT_BLOCK_THRESHOLD
   const gateDisabled = gateOpening || gateOpeningGlobally || gateCoolingDown || gateDebtBlocked
   const gateButtonHint = gateDebtBlocked
     ? 'Недоступно при долге от 5 000 ₽'

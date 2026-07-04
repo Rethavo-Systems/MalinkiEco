@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   collection,
   doc,
+  limit,
   limitToLast,
   onSnapshot,
   orderBy,
@@ -357,7 +358,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
 
     if (isStaff && needsLogs) {
       unsubscribeAuditLogs = onSnapshot(
-        query(collection(db, 'audit_logs'), orderBy('createdAt', 'desc'), limitToLast(100)),
+        query(collection(db, 'audit_logs'), orderBy('createdAt', 'desc'), limit(100)),
         (snapshot) => {
           const nextLogs = snapshot.docs
             .map<AuditLogEntry>((item) => {

@@ -24,13 +24,19 @@ export async function openGate() {
 
   const baseUrl = apiBaseUrl()
   const token = await user.getIdToken()
-  const response = await fetch(`${baseUrl}/api/gate/open`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  })
+  let response: Response
+
+  try {
+    response = await fetch(`${baseUrl}/api/gate/open`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+  } catch {
+    throw new Error('Не удалось связаться с сервером ворот. Проверьте интернет и попробуйте позже.')
+  }
 
   const payload = (await response.json().catch(() => ({}))) as GateOpenResponse
   if (!response.ok || !payload.ok) {
