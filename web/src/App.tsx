@@ -128,14 +128,14 @@ function App() {
     verifyEmailCode,
   } = useResidentAuth()
 
-  const maintenanceEnabled = appGate.maintenanceEnabled
+  const gateMode = appGate.errorEnabled ? 'error' : appGate.maintenanceEnabled ? 'maintenance' : 'open'
 
   const { profile, profileLoading, setProfile } = useResidentProfile({
     authUser,
     onMissingProfile: handleMissingProfileAccess,
   })
   const isMaintenancePrivileged = profile?.role === 'ADMIN' || profile?.role === 'TESTER'
-  const maintenanceLocked = maintenanceEnabled && !isMaintenancePrivileged
+  const maintenanceLocked = gateMode !== 'open' && !isMaintenancePrivileged
   const {
     unbindBeforeLogout,
     busy: webPushBusy,
@@ -210,6 +210,17 @@ function App() {
   useEffect(() => {
     clearRequestedTabFromUrl()
   }, [])
+
+  useEffect(() => {
+    if (!maintenanceLocked) return
+
+    setSettingsOpen(false)
+    setSupportOpen(false)
+    setGateOpening(false)
+    setLocalGateCooldownUntil(0)
+    clearNotice()
+    setActiveTab('events')
+  }, [clearNotice, maintenanceLocked])
 
   useEffect(() => {
     if (visibleTabs.includes(activeTab)) {
@@ -1194,7 +1205,14 @@ function App() {
   }
 
   if (maintenanceLocked) {
-    return <MaintenanceScreen title={appGate.maintenanceTitle} message={appGate.maintenanceMessage} />
+    return (
+      <MaintenanceScreen
+        title={gateMode === 'error' ? appGate.errorTitle : appGate.maintenanceTitle}
+        message={gateMode === 'error' ? appGate.errorMessage : appGate.maintenanceMessage}
+        variant={gateMode === 'error' ? 'error' : 'maintenance'}
+        endsAtClient={gateMode === 'error' ? appGate.errorEndsAtClient : appGate.maintenanceEndsAtClient}
+      />
+    )
   }
 
   if (!authUser || !profile) {
