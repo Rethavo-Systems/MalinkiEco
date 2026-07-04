@@ -5,7 +5,7 @@
     "notification_signals": {
       "$signalId": {
         ".read": false,
-        ".write": "(!data.exists() && auth != null && newData.hasChildren(['jobId', 'creatorId', 'createdAtClient', 'dueAtClient']) && newData.child('creatorId').isString() && newData.child('creatorId').val() === auth.uid && newData.child('jobId').isString() && newData.child('jobId').val().length > 0 && newData.child('createdAtClient').isNumber() && newData.child('dueAtClient').isNumber()) || (data.exists() && !newData.exists()) || (data.exists() && newData.child('jobId').val() === data.child('jobId').val() && newData.child('creatorId').val() === data.child('creatorId').val() && newData.child('createdAtClient').val() === data.child('createdAtClient').val() && newData.child('dueAtClient').isNumber())"
+        ".write": "!data.exists() && auth != null && newData.hasChildren(['jobId', 'creatorId', 'createdAtClient', 'dueAtClient']) && newData.child('creatorId').isString() && newData.child('creatorId').val() === auth.uid && newData.child('jobId').isString() && newData.child('jobId').val().length > 0 && newData.child('createdAtClient').isNumber() && newData.child('dueAtClient').isNumber()"
       }
     }
   }
