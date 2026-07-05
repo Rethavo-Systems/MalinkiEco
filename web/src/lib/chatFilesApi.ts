@@ -173,6 +173,26 @@ export async function downloadChatAttachment(attachment: ChatAttachment): Promis
   return downloadProtectedFile(attachment.downloadPath)
 }
 
+export async function deleteChatAttachment(attachment: ChatAttachment): Promise<void> {
+  const baseUrl = requireApiBaseUrl()
+  const token = await requireFirebaseToken()
+
+  let response: Response
+  try {
+    response = await fetch(`${baseUrl}${attachment.downloadPath}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  } catch {
+    throw new Error('Не удалось удалить файл с Диска. Проверьте интернет и попробуйте еще раз.')
+  }
+
+  const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+  if (!response.ok || !payload.ok) {
+    throw new Error(payload.error || 'Не удалось удалить файл с Диска.')
+  }
+}
+
 export async function downloadChatAttachmentToDevice(attachment: ChatAttachment) {
   const blob = await downloadChatAttachment(attachment)
   const url = URL.createObjectURL(blob)

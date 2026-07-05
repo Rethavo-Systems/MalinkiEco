@@ -202,6 +202,7 @@
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 14px 30px rgba(0, 8, 20, 0.14);
+  -webkit-touch-callout: none;
 }
 
 .resident-chat__bubble.is-mine {
@@ -336,6 +337,8 @@
   text-align: left;
   cursor: pointer;
   font: inherit;
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 
 .resident-chat__attachment.is-image {
@@ -351,6 +354,8 @@
   display: block;
   object-fit: cover;
   background: rgba(255, 255, 255, 0.05);
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 .resident-chat__attachment.is-image .resident-chat__attachment-info {

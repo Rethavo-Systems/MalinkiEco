@@ -51,6 +51,10 @@ export default {
       return downloadChatFile(request, env)
     }
 
+    if (request.method === 'DELETE' && url.pathname.startsWith('/api/chat/files/')) {
+      return deleteChatFile(request, env)
+    }
+
     if (request.method === 'GET' && url.pathname.startsWith('/api/chat/avatar/')) {
       return downloadUserAvatar(request, env)
     }
@@ -323,6 +327,34 @@ async function downloadChatFile(request, env) {
     return new Response(object.body, { status: 200, headers })
   } catch (error) {
     console.error('[chat-files-worker] download failed', error)
+    return jsonResponse(
+      { ok: false, error: publicWorkerFileErrorMessage(error) },
+      Number(error?.httpStatus || 500),
+      request,
+      env,
+    )
+  }
+}
+
+async function deleteChatFile(request, env) {
+  try {
+    assertRequiredEnv(env)
+
+    const { actorDoc } = await getAuthorizedActor(request, env)
+    const actorRole = String(actorDoc.role || 'USER')
+    const gateDoc = await getFirestoreDocument(env, 'app_settings/app_gate')
+    ensureAppAvailableForActor(gateDoc, actorRole)
+
+    const url = new URL(request.url)
+    const fileName = decodeURIComponent(url.pathname.replace('/api/chat/files/', '')).trim()
+    if (!isSafeChatStorageFileName(fileName)) {
+      return jsonResponse({ ok: false, error: 'Файл не найден.' }, 404, request, env)
+    }
+
+    await deleteStoredObject(env, `${CHAT_FILES_PREFIX}${fileName}`)
+    return jsonResponse({ ok: true }, 200, request, env)
+  } catch (error) {
+    console.error('[chat-files-worker] delete failed', error)
     return jsonResponse(
       { ok: false, error: publicWorkerFileErrorMessage(error) },
       Number(error?.httpStatus || 500),
@@ -754,6 +786,10 @@ function sanitizeFileName(value) {
 
 function chatStorageFileName(expiresAtClient, fileId, cleanName) {
   return `${expiresAtClient}-${fileId}-${cleanName}`
+}
+
+function isSafeChatStorageFileName(fileName) {
+  return /^\d+-[0-9a-f-]{36}-[^/\\]+$/i.test(String(fileName || ''))
 }
 
 function parseChatStorageFileName(fileName) {

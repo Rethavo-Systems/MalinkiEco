@@ -134,6 +134,8 @@ export function ResidentChat({
   const previousLastMessageIdRef = useRef('')
   const stickToLatestRef = useRef(true)
   const settleScrollTimersRef = useRef<number[]>([])
+  const longPressTimerRef = useRef<number | null>(null)
+  const longPressTriggeredRef = useRef(false)
 
   const mentionCandidates = useMemo(
     () =>
@@ -281,6 +283,7 @@ export function ResidentChat({
 
   useEffect(
     () => () => {
+      clearLongPressTimer()
       clearSettleScrollTimers()
     },
     [],
@@ -365,6 +368,42 @@ export function ResidentChat({
 
   const openTouchMenu = (element: HTMLElement, message: ResidentChatMessage) => {
     openMenuAt(message, element.getBoundingClientRect(), message.senderId === profile.id)
+  }
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }
+
+  const startLongPress = (event: React.TouchEvent<HTMLElement>, message: ResidentChatMessage) => {
+    if (event.touches.length !== 1) return
+
+    clearLongPressTimer()
+    longPressTriggeredRef.current = false
+    const element = event.currentTarget
+
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true
+      openTouchMenu(element, message)
+    }, 420)
+  }
+
+  const finishLongPress = (event: React.TouchEvent<HTMLElement>) => {
+    const wasTriggered = longPressTriggeredRef.current
+    clearLongPressTimer()
+    longPressTriggeredRef.current = false
+
+    if (wasTriggered) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+  }
+
+  const cancelLongPress = () => {
+    clearLongPressTimer()
+    longPressTriggeredRef.current = false
   }
 
   const formatUserPlots = (user: ResidentChatUser) => {
@@ -578,23 +617,10 @@ export function ResidentChat({
                 <article
                   className={`resident-chat__bubble ${isMine ? 'is-mine' : 'is-other'} ${message.isPinned ? 'is-pinned' : ''} ${mentionedMe ? 'is-mentioned' : ''}`}
                   onContextMenu={(event) => openContextMenu(event, message)}
-                  onTouchStart={(event) => {
-                    const element = event.currentTarget as HTMLElement
-                    const timer = window.setTimeout(() => openTouchMenu(element, message), 420)
-                    element.dataset.longPressTimer = String(timer)
-                  }}
-                  onTouchEnd={(event) => {
-                    const element = event.currentTarget as HTMLElement
-                    const timer = Number(element.dataset.longPressTimer ?? '0')
-                    if (timer) window.clearTimeout(timer)
-                    element.dataset.longPressTimer = ''
-                  }}
-                  onTouchMove={(event) => {
-                    const element = event.currentTarget as HTMLElement
-                    const timer = Number(element.dataset.longPressTimer ?? '0')
-                    if (timer) window.clearTimeout(timer)
-                    element.dataset.longPressTimer = ''
-                  }}
+                  onTouchStart={(event) => startLongPress(event, message)}
+                  onTouchEnd={finishLongPress}
+                  onTouchCancel={finishLongPress}
+                  onTouchMove={cancelLongPress}
                 >
                 <div className="resident-chat__meta">
                   <span className="resident-chat__author">
@@ -905,10 +931,19 @@ function ChatAttachmentCard({ attachment }: { attachment: ResidentChatAttachment
   }
 
   return (
-    <button ref={cardRef} className={`resident-chat__attachment is-${attachment.kind}`} type="button" onClick={handleDownload}>
+    <button
+      ref={cardRef}
+      className={`resident-chat__attachment is-${attachment.kind}`}
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        void handleDownload()
+      }}
+      onContextMenu={(event) => event.preventDefault()}
+    >
       {isImage ? (
         previewUrl ? (
-          <img src={previewUrl} alt={attachment.name} loading="lazy" />
+          <img src={previewUrl} alt={attachment.name} loading="lazy" draggable={false} />
         ) : (
           <span className="resident-chat__attachment-icon">{previewFailed ? '!' : 'IMG'}</span>
         )
