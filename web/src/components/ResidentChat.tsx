@@ -130,6 +130,8 @@ export function ResidentChat({
   const listRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const previousLastMessageIdRef = useRef('')
+  const stickToLatestRef = useRef(true)
+  const settleScrollTimersRef = useRef<number[]>([])
 
   const mentionCandidates = useMemo(
     () =>
@@ -162,19 +164,44 @@ export function ResidentChat({
 
     const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
     setShowScrollToLatest(distanceToBottom > 170)
+    stickToLatestRef.current = distanceToBottom < 72
 
     if (distanceToBottom < 72) {
       markLatestAsRead()
     }
   }
 
+  const clearSettleScrollTimers = () => {
+    settleScrollTimersRef.current.forEach((timerId) => {
+      window.clearTimeout(timerId)
+    })
+    settleScrollTimersRef.current = []
+  }
+
+  const settleScrollToLatest = (list = listRef.current) => {
+    if (!list) return
+
+    clearSettleScrollTimers()
+    const settleDelays = [0, 80, 180, 360]
+    settleDelays.forEach((delay) => {
+      const timerId = window.setTimeout(() => {
+        if (!stickToLatestRef.current) return
+        list.scrollTop = list.scrollHeight
+        updateScrollToLatestButton(list)
+      }, delay)
+      settleScrollTimersRef.current.push(timerId)
+    })
+  }
+
   const scrollToLatestMessages = () => {
     const list = listRef.current
     if (!list) return
 
+    stickToLatestRef.current = true
     list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' })
     setShowScrollToLatest(false)
     markLatestAsRead()
+    settleScrollToLatest(list)
   }
 
   useEffect(() => {
@@ -208,10 +235,12 @@ export function ResidentChat({
     const shouldStickToBottom = distanceToBottom < 72
 
     if (!isSameLastMessage || shouldStickToBottom) {
+      stickToLatestRef.current = true
       requestAnimationFrame(() => {
         list.scrollTo({ top: list.scrollHeight, behavior: isSameLastMessage ? 'smooth' : 'auto' })
         markLatestAsRead()
         updateScrollToLatestButton(list)
+        settleScrollToLatest(list)
       })
     } else {
       updateScrollToLatestButton(list)
@@ -240,6 +269,13 @@ export function ResidentChat({
       window.removeEventListener('keydown', closeByEscape)
     }
   }, [menu])
+
+  useEffect(
+    () => () => {
+      clearSettleScrollTimers()
+    },
+    [],
+  )
 
   useEffect(() => {
     selectedFilesRef.current = selectedFiles
