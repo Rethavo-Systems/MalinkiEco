@@ -427,7 +427,7 @@ function App() {
       setChatJumpDirection('up')
     }
 
-    const timers = [0, 80, 180].map((delay) => window.setTimeout(scrollToChat, delay))
+    const timers = [0, 80, 180, 360, 560].map((delay) => window.setTimeout(scrollToChat, delay))
 
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer))
@@ -441,6 +441,17 @@ function App() {
     const updateJumpDirection = () => {
       window.cancelAnimationFrame(frame)
       frame = window.requestAnimationFrame(() => {
+        const edgeGap = window.innerWidth <= 640 ? 0 : 4
+        if (window.innerWidth <= 760) {
+          const targetTop = Math.max(
+            0,
+            window.scrollY + chatViewportElement.getBoundingClientRect().top - edgeGap,
+          )
+          if (window.scrollY > targetTop + 2) {
+            window.scrollTo({ top: targetTop, behavior: 'auto' })
+          }
+        }
+
         const threshold = Math.min(150, Math.max(72, window.innerHeight * 0.18))
         const chatTop = chatViewportElement.getBoundingClientRect().top
         setChatJumpDirection(chatTop > threshold ? 'down' : 'up')
@@ -959,23 +970,29 @@ function App() {
   ) => {
     if (!db || !profile) return
 
+    const attachments: ChatAttachment[] = []
     try {
       const cleanMentionedUserIds = Array.from(new Set(mentionedUserIds.filter((item) => item && item !== profile.id)))
-      const attachments: ChatAttachment[] = []
       for (const file of files) {
         attachments.push(await uploadChatFile(file))
       }
       const notificationText = text.trim() || (attachments.length === 1 ? 'отправил вложение' : 'отправил вложения')
+      const alreadyNotifiedUserIds = new Set([profile.id, ...cleanMentionedUserIds])
+      const chatPushTargetUserIds = users
+        .map((user) => user.id)
+        .filter((userId) => userId && !alreadyNotifiedUserIds.has(userId))
 
       await sendChatMessageRequest(db, profile, text, replyTo, cleanMentionedUserIds, attachments)
       try {
-        await enqueueBroadcastNotification(db, {
-          title: 'Новое сообщение в чате',
-          body: `${profile.fullName}: ${notificationText}`,
-          destination: 'chat',
-          category: 'chat',
-          excludedUserIds: [profile.id, ...cleanMentionedUserIds],
-        })
+        if (chatPushTargetUserIds.length > 0) {
+          await enqueueTargetedNotification(db, {
+            title: 'Новое сообщение в чате',
+            body: `${profile.fullName}: ${notificationText}`,
+            destination: 'chat',
+            category: 'chat',
+            targetUserIds: chatPushTargetUserIds,
+          })
+        }
 
         if (cleanMentionedUserIds.length > 0) {
           await enqueueTargetedNotification(db, {
@@ -996,6 +1013,10 @@ function App() {
         errorCode.includes('permission-denied') || errorMessage.includes('Missing or insufficient permissions')
           ? 'Не удалось сохранить сообщение. Обновите страницу и попробуйте еще раз.'
           : errorMessage || 'Сообщение пока не отправилось. Попробуйте еще раз.'
+
+      if (attachments.length > 0) {
+        await Promise.allSettled(attachments.map((attachment) => deleteChatAttachment(attachment)))
+      }
 
       showNotice(normalizedMessage)
       throw new Error('send-failed')

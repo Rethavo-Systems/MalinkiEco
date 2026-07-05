@@ -311,9 +311,11 @@ export function ResidentChat({
 
         const viewportHeight = window.visualViewport?.height ?? window.innerHeight
         const isCompact = window.innerWidth <= 640
-        const edgeGap = isCompact ? 8 : 16
-        const chatJumpFootprint = isCompact ? 34 : 40
-        const maximumHeight = Math.max(280, viewportHeight - edgeGap - chatJumpFootprint)
+        const edgeGap = isCompact ? 6 : 16
+        const rootTop = root.getBoundingClientRect().top
+        const visibleTopGap =
+          rootTop > 0 && rootTop < viewportHeight * 0.72 ? Math.max(edgeGap, rootTop) : isCompact ? 40 : 46
+        const maximumHeight = Math.max(280, viewportHeight - visibleTopGap - edgeGap)
         const minimumHeight = Math.min(isCompact ? 380 : 460, maximumHeight)
         const nextHeight = Math.max(minimumHeight, maximumHeight)
 
@@ -322,11 +324,13 @@ export function ResidentChat({
     }
 
     updateChatHeight()
+    window.addEventListener('scroll', updateChatHeight, { passive: true })
     window.addEventListener('resize', updateChatHeight)
     window.visualViewport?.addEventListener('resize', updateChatHeight)
 
     return () => {
       window.cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', updateChatHeight)
       window.removeEventListener('resize', updateChatHeight)
       window.visualViewport?.removeEventListener('resize', updateChatHeight)
     }
@@ -877,6 +881,7 @@ function ChatAttachmentCard({ attachment }: { attachment: ResidentChatAttachment
   const [previewUrl, setPreviewUrl] = useState('')
   const [previewFailed, setPreviewFailed] = useState(false)
   const [previewRequested, setPreviewRequested] = useState(false)
+  const [previewRetryAttempt, setPreviewRetryAttempt] = useState(0)
   const isImage = attachment.kind === 'image'
 
   useEffect(() => {
@@ -906,6 +911,8 @@ function ChatAttachmentCard({ attachment }: { attachment: ResidentChatAttachment
 
     let disposed = false
     let objectUrl = ''
+    let retryTimer = 0
+    setPreviewFailed(false)
     downloadChatAttachment(attachment)
       .then((blob) => {
         if (disposed) return
@@ -913,14 +920,24 @@ function ChatAttachmentCard({ attachment }: { attachment: ResidentChatAttachment
         setPreviewUrl(objectUrl)
       })
       .catch(() => {
-        if (!disposed) setPreviewFailed(true)
+        if (disposed) return
+        if (previewRetryAttempt < 2) {
+          retryTimer = window.setTimeout(() => {
+            setPreviewRetryAttempt((current) => current + 1)
+          }, 700 + previewRetryAttempt * 900)
+          return
+        }
+        setPreviewFailed(true)
       })
 
     return () => {
       disposed = true
+      if (retryTimer) {
+        window.clearTimeout(retryTimer)
+      }
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [attachment, isImage, previewRequested])
+  }, [attachment, isImage, previewRequested, previewRetryAttempt])
 
   const handleDownload = async () => {
     try {
