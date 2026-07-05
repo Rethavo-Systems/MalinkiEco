@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { signOut } from 'firebase/auth'
 import { auth, db, firebaseSetup, rtdb } from './lib/firebase'
 import {
@@ -52,7 +52,7 @@ import { useResidentData } from './hooks/useResidentData'
 import { useResidentProfile } from './hooks/useResidentProfile'
 import { useWebPush } from './hooks/useWebPush'
 import { useAvatarObjectUrl } from './hooks/useAvatarObjectUrl'
-import { deleteUserAvatar, uploadChatFile, uploadUserAvatar } from './lib/chatFilesApi'
+import { AVATAR_FILE_MAX_SIZE_BYTES, deleteUserAvatar, uploadChatFile, uploadUserAvatar } from './lib/chatFilesApi'
 import { openGate as openGateRequest } from './lib/gateApi'
 import { clearRequestedTabFromUrl, readRequestedTabFromUrl } from './lib/webPush'
 import type {
@@ -84,8 +84,35 @@ const EVENT_EMAIL_FOOTER =
 const TAB_BADGE_STORAGE_PREFIX = 'malinkieco.tabSeen.v1'
 const GATE_DEBT_BLOCK_THRESHOLD = -5000
 const GATE_UI_COOLDOWN_MS = 10_000
+const AVATAR_CROP_VIEWPORT_SIZE = 280
+const AVATAR_CROP_OUTPUT_SIZE = 512
+const AVATAR_CROP_MIN_ZOOM = 1
+const AVATAR_CROP_MAX_ZOOM = 3
 
 type TabSeenState = Record<TabKey, number>
+type AvatarCropDraft = {
+  previewUrl: string
+  zoom: number
+  offsetX: number
+  offsetY: number
+  naturalWidth: number
+  naturalHeight: number
+}
+type AvatarCropDragState = {
+  pointerId: number
+  startX: number
+  startY: number
+  offsetX: number
+  offsetY: number
+}
+type AvatarCropMetrics = {
+  naturalWidth: number
+  naturalHeight: number
+  renderedWidth: number
+  renderedHeight: number
+  left: number
+  top: number
+}
 
 function userInitials(value: string): string {
   const parts = value
@@ -109,6 +136,106 @@ function emptySeenState(): TabSeenState {
   }
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function getAvatarCropMetrics(crop: AvatarCropDraft): AvatarCropMetrics {
+  const naturalWidth = crop.naturalWidth > 0 ? crop.naturalWidth : AVATAR_CROP_VIEWPORT_SIZE
+  const naturalHeight = crop.naturalHeight > 0 ? crop.naturalHeight : AVATAR_CROP_VIEWPORT_SIZE
+  const fitScale = Math.max(AVATAR_CROP_VIEWPORT_SIZE / naturalWidth, AVATAR_CROP_VIEWPORT_SIZE / naturalHeight)
+  const zoom = clamp(crop.zoom, AVATAR_CROP_MIN_ZOOM, AVATAR_CROP_MAX_ZOOM)
+  const renderedWidth = naturalWidth * fitScale * zoom
+  const renderedHeight = naturalHeight * fitScale * zoom
+
+  return {
+    naturalWidth,
+    naturalHeight,
+    renderedWidth,
+    renderedHeight,
+    left: (AVATAR_CROP_VIEWPORT_SIZE - renderedWidth) / 2 + crop.offsetX,
+    top: (AVATAR_CROP_VIEWPORT_SIZE - renderedHeight) / 2 + crop.offsetY,
+  }
+}
+
+function clampAvatarCropOffset(crop: AvatarCropDraft, offsetX: number, offsetY: number) {
+  const metrics = getAvatarCropMetrics(crop)
+  const maxOffsetX = Math.max(0, (metrics.renderedWidth - AVATAR_CROP_VIEWPORT_SIZE) / 2)
+  const maxOffsetY = Math.max(0, (metrics.renderedHeight - AVATAR_CROP_VIEWPORT_SIZE) / 2)
+
+  return {
+    offsetX: clamp(offsetX, -maxOffsetX, maxOffsetX),
+    offsetY: clamp(offsetY, -maxOffsetY, maxOffsetY),
+  }
+}
+
+function withClampedAvatarCropOffset(crop: AvatarCropDraft): AvatarCropDraft {
+  return {
+    ...crop,
+    ...clampAvatarCropOffset(crop, crop.offsetX, crop.offsetY),
+  }
+}
+
+function loadImageElement(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Не удалось подготовить изображение.'))
+    image.src = src
+  })
+}
+
+async function createCroppedAvatarFile(crop: AvatarCropDraft) {
+  const image = await loadImageElement(crop.previewUrl)
+  const preparedCrop = withClampedAvatarCropOffset({
+    ...crop,
+    naturalWidth: image.naturalWidth,
+    naturalHeight: image.naturalHeight,
+  })
+  const metrics = getAvatarCropMetrics(preparedCrop)
+  const sourceX = clamp((-metrics.left / metrics.renderedWidth) * metrics.naturalWidth, 0, metrics.naturalWidth)
+  const sourceY = clamp((-metrics.top / metrics.renderedHeight) * metrics.naturalHeight, 0, metrics.naturalHeight)
+  const sourceSize = Math.min(
+    (AVATAR_CROP_VIEWPORT_SIZE / metrics.renderedWidth) * metrics.naturalWidth,
+    metrics.naturalWidth - sourceX,
+    metrics.naturalHeight - sourceY,
+  )
+  const canvas = document.createElement('canvas')
+  canvas.width = AVATAR_CROP_OUTPUT_SIZE
+  canvas.height = AVATAR_CROP_OUTPUT_SIZE
+  const context = canvas.getContext('2d')
+
+  if (!context || sourceSize <= 0) {
+    throw new Error('Не удалось подготовить аватарку.')
+  }
+
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(
+    image,
+    sourceX,
+    sourceY,
+    sourceSize,
+    sourceSize,
+    0,
+    0,
+    AVATAR_CROP_OUTPUT_SIZE,
+    AVATAR_CROP_OUTPUT_SIZE,
+  )
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((result) => {
+      if (result) {
+        resolve(result)
+      } else {
+        reject(new Error('Не удалось сохранить аватарку.'))
+      }
+    }, 'image/jpeg', 0.9)
+  })
+
+  return new File([blob], 'avatar.jpg', { type: 'image/jpeg', lastModified: Date.now() })
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>(() => readRequestedTabFromUrl() ?? 'events')
   const [pollDraft, setPollDraft] = useState<PollDraft>(INITIAL_POLL_DRAFT)
@@ -118,6 +245,8 @@ function App() {
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
   const [avatarInputElement, setAvatarInputElement] = useState<HTMLInputElement | null>(null)
   const [avatarBusy, setAvatarBusy] = useState(false)
+  const [avatarCropDraft, setAvatarCropDraft] = useState<AvatarCropDraft | null>(null)
+  const avatarCropDragRef = useRef<AvatarCropDragState | null>(null)
   const [savingProfileChangeRequest, setSavingProfileChangeRequest] = useState(false)
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false)
   const [sendingSupportRequest, setSendingSupportRequest] = useState(false)
@@ -126,6 +255,7 @@ function App() {
   const [gateClockNow, setGateClockNow] = useState(() => Date.now())
   const [chatJumpDirection, setChatJumpDirection] = useState<'up' | 'down'>('up')
   const [chatViewportElement, setChatViewportElement] = useState<HTMLElement | null>(null)
+  const [chatActivationKey, setChatActivationKey] = useState(0)
   const appGate = useAppGate()
   const { authUser, authLoading } = useFirebaseAuthState()
   const { pageNotice, showNotice, clearNotice } = usePageNotice()
@@ -261,27 +391,23 @@ function App() {
   }, [avatarMenuOpen])
 
   useEffect(() => {
+    const previewUrl = avatarCropDraft?.previewUrl
+    if (!previewUrl) return
+
+    return () => {
+      URL.revokeObjectURL(previewUrl)
+    }
+  }, [avatarCropDraft?.previewUrl])
+
+  useEffect(() => {
     if (activeTab !== 'chat') {
       setChatJumpDirection('up')
       return
     }
 
-    if (!chatViewportElement) return
-
-    const frame = window.requestAnimationFrame(() => {
-      const edgeGap = window.innerWidth <= 640 ? 0 : 4
-      const targetTop = chatViewportElement.getBoundingClientRect().top
-      window.scrollTo({
-        top: Math.max(0, window.scrollY + targetTop - edgeGap),
-        behavior: 'auto',
-      })
-      setChatJumpDirection('up')
-    })
-
-    return () => {
-      window.cancelAnimationFrame(frame)
-    }
-  }, [activeTab, chatViewportElement])
+    setChatJumpDirection('up')
+    setChatActivationKey((current) => current + 1)
+  }, [activeTab])
 
   useEffect(() => {
     if (activeTab !== 'chat' || !chatViewportElement) return
@@ -582,10 +708,113 @@ function App() {
 
     if (!file || avatarBusy) return
 
+    if (!file.type.startsWith('image/')) {
+      showNotice('Выберите изображение для аватарки.')
+      return
+    }
+
+    if (file.size <= 0) {
+      showNotice(`Файл «${file.name}» пустой.`)
+      return
+    }
+
+    if (file.size > AVATAR_FILE_MAX_SIZE_BYTES) {
+      showNotice(`Аватарка «${file.name}» больше 5 МБ.`)
+      return
+    }
+
+    setAvatarMenuOpen(false)
+    setAvatarCropDraft({
+      previewUrl: URL.createObjectURL(file),
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0,
+      naturalWidth: 0,
+      naturalHeight: 0,
+    })
+  }
+
+  const handleAvatarCropImageLoad = (event: { currentTarget: HTMLImageElement }) => {
+    const { naturalWidth, naturalHeight } = event.currentTarget
+    setAvatarCropDraft((current) => {
+      if (!current) return current
+      return withClampedAvatarCropOffset({
+        ...current,
+        naturalWidth,
+        naturalHeight,
+      })
+    })
+  }
+
+  const updateAvatarCropZoom = (value: number) => {
+    setAvatarCropDraft((current) => {
+      if (!current) return current
+      return withClampedAvatarCropOffset({
+        ...current,
+        zoom: clamp(value, AVATAR_CROP_MIN_ZOOM, AVATAR_CROP_MAX_ZOOM),
+      })
+    })
+  }
+
+  const handleAvatarCropPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (!avatarCropDraft || avatarBusy) return
+
+    event.currentTarget.setPointerCapture(event.pointerId)
+    avatarCropDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      offsetX: avatarCropDraft.offsetX,
+      offsetY: avatarCropDraft.offsetY,
+    }
+  }
+
+  const handleAvatarCropPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const dragState = avatarCropDragRef.current
+    if (!dragState || dragState.pointerId !== event.pointerId) return
+
+    setAvatarCropDraft((current) => {
+      if (!current) return current
+      const nextOffset = clampAvatarCropOffset(
+        current,
+        dragState.offsetX + event.clientX - dragState.startX,
+        dragState.offsetY + event.clientY - dragState.startY,
+      )
+
+      return {
+        ...current,
+        ...nextOffset,
+      }
+    })
+  }
+
+  const handleAvatarCropPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (avatarCropDragRef.current?.pointerId === event.pointerId) {
+      avatarCropDragRef.current = null
+    }
+  }
+
+  const handleCancelAvatarCrop = () => {
+    if (avatarBusy) return
+    avatarCropDragRef.current = null
+    setAvatarCropDraft(null)
+  }
+
+  const handleConfirmAvatarCrop = async () => {
+    if (!avatarCropDraft || avatarBusy) return
+
+    if (avatarCropDraft.naturalWidth <= 0 || avatarCropDraft.naturalHeight <= 0) {
+      showNotice('Изображение еще загружается. Подождите секунду.')
+      return
+    }
+
     setAvatarBusy(true)
     try {
-      await uploadUserAvatar(file)
+      const croppedFile = await createCroppedAvatarFile(avatarCropDraft)
+      await uploadUserAvatar(croppedFile)
       showNotice('Аватарка обновлена.')
+      avatarCropDragRef.current = null
+      setAvatarCropDraft(null)
       setAvatarMenuOpen(false)
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось обновить аватарку.')
@@ -1333,6 +1562,8 @@ function App() {
     }
   }
 
+  const avatarCropMetrics = avatarCropDraft ? getAvatarCropMetrics(avatarCropDraft) : null
+
   if (!firebaseSetup.ready) {
     return <SetupScreen />
   }
@@ -1532,6 +1763,65 @@ function App() {
         onSubmit={handleSubmitSupportRequest}
       />
 
+      {avatarCropDraft && (
+        <div className="avatar-crop-overlay" role="dialog" aria-modal="true" aria-label="Настройка аватарки" onClick={handleCancelAvatarCrop}>
+          <div className="avatar-crop-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="avatar-crop-heading">
+              <p className="eyebrow accent">Аватарка</p>
+              <h2>Выберите область фото</h2>
+              <p>Передвиньте изображение и настройте масштаб, чтобы лицо или нужный фрагмент попал в круг.</p>
+            </div>
+
+            <div
+              className="avatar-crop-stage"
+              onPointerDown={handleAvatarCropPointerDown}
+              onPointerMove={handleAvatarCropPointerMove}
+              onPointerUp={handleAvatarCropPointerUp}
+              onPointerCancel={handleAvatarCropPointerUp}
+            >
+              <img
+                className="avatar-crop-image"
+                src={avatarCropDraft.previewUrl}
+                alt=""
+                draggable={false}
+                onLoad={handleAvatarCropImageLoad}
+                style={
+                  avatarCropMetrics
+                    ? {
+                        width: `${avatarCropMetrics.renderedWidth}px`,
+                        height: `${avatarCropMetrics.renderedHeight}px`,
+                        transform: `translate3d(${avatarCropMetrics.left}px, ${avatarCropMetrics.top}px, 0)`,
+                      }
+                    : undefined
+                }
+              />
+              <span className="avatar-crop-ring" aria-hidden="true" />
+            </div>
+
+            <label className="avatar-crop-zoom">
+              <span>Масштаб</span>
+              <input
+                type="range"
+                min={AVATAR_CROP_MIN_ZOOM}
+                max={AVATAR_CROP_MAX_ZOOM}
+                step="0.01"
+                value={avatarCropDraft.zoom}
+                onChange={(event) => updateAvatarCropZoom(Number(event.currentTarget.value))}
+              />
+            </label>
+
+            <div className="avatar-crop-actions">
+              <button className="ghost-button" type="button" onClick={handleCancelAvatarCrop} disabled={avatarBusy}>
+                Отмена
+              </button>
+              <button className="primary-button" type="button" onClick={() => void handleConfirmAvatarCrop()} disabled={avatarBusy}>
+                {avatarBusy ? 'Сохраняем...' : 'Сохранить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main
         ref={setChatViewportElement}
         className={`content-grid ${activeTab === 'chat' ? 'content-grid--chat' : ''}`}
@@ -1575,6 +1865,7 @@ function App() {
               onDelete={removeChatMessage}
               onTogglePin={togglePinnedMessage}
               onMarkRead={markChatRead}
+              activationKey={chatActivationKey}
             />
           </>
         )}
