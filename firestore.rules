@@ -144,6 +144,55 @@ service cloud.firestore {
         request.resource.data.expirationTime is int;
     }
 
+    function validChatMessageCreate() {
+      return request.resource.data.keys().hasOnly([
+          'senderId',
+          'senderName',
+          'senderPlotName',
+          'text',
+          'attachments',
+          'replyToMessageId',
+          'replyToSenderName',
+          'replyToSenderPlotName',
+          'replyToText',
+          'mentionedUserIds',
+          'isPinned',
+          'pinnedByUserId',
+          'pinnedByUserName',
+          'pinnedAtClient',
+          'createdAtClient',
+          'updatedAtClient'
+        ]) &&
+        request.resource.data.senderId == request.auth.uid &&
+        request.resource.data.senderName is string &&
+        request.resource.data.senderPlotName is string &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() <= 4000 &&
+        (
+          (
+            !request.resource.data.keys().hasAny(['attachments']) &&
+            request.resource.data.text.size() > 0
+          ) ||
+          (
+            request.resource.data.keys().hasAny(['attachments']) &&
+            request.resource.data.attachments is list &&
+            request.resource.data.attachments.size() <= 6 &&
+            (request.resource.data.text.size() > 0 || request.resource.data.attachments.size() > 0)
+          )
+        ) &&
+        request.resource.data.replyToMessageId is string &&
+        request.resource.data.replyToSenderName is string &&
+        request.resource.data.replyToSenderPlotName is string &&
+        request.resource.data.replyToText is string &&
+        request.resource.data.mentionedUserIds is list &&
+        request.resource.data.isPinned == false &&
+        request.resource.data.pinnedByUserId == '' &&
+        request.resource.data.pinnedByUserName == '' &&
+        request.resource.data.pinnedAtClient == 0 &&
+        request.resource.data.createdAtClient is int &&
+        request.resource.data.updatedAtClient is int;
+    }
+
     match /users/{userId} {
       allow read: if signedIn();
 
@@ -225,11 +274,14 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
 
+    match /chat_files/{fileId} {
+      allow read, write: if false;
+    }
+
     match /chat_messages/{messageId} {
       allow read: if signedIn();
 
-      allow create: if signedIn() &&
-        request.resource.data.senderId == request.auth.uid;
+      allow create: if signedIn() && validChatMessageCreate();
 
       allow update: if signedIn() && (
         (

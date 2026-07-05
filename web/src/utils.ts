@@ -1,5 +1,5 @@
 ﻿import { DEFAULT_NOTIFICATION_SETTINGS } from './constants'
-import type { CommunityEvent, NotificationSettings, PaymentTransferConfig, RemoteUser, Role } from './types'
+import type { CommunityEvent, NotificationSettings, PaymentTransferConfig, RemoteUser, Role, UserAvatar } from './types'
 
 export function extractCreatedAt(createdAt: unknown, fallback: unknown): number {
   if (createdAt && typeof createdAt === 'object' && 'seconds' in createdAt) {
@@ -21,6 +21,26 @@ export function normalizeNotificationSettings(data: unknown): NotificationSettin
   }
 }
 
+export function normalizeUserAvatar(data: unknown): UserAvatar | null {
+  if (!data || typeof data !== 'object') return null
+
+  const raw = data as Record<string, unknown>
+  const id = String(raw.id ?? '').trim()
+  const downloadPath = String(raw.downloadPath ?? '').trim()
+  const storageKey = String(raw.storageKey ?? '').trim()
+  if (!id || !downloadPath || !storageKey) return null
+
+  return {
+    id,
+    name: String(raw.name ?? 'avatar').trim() || 'avatar',
+    contentType: String(raw.contentType ?? 'image/jpeg'),
+    size: Number(raw.size ?? 0),
+    downloadPath,
+    storageKey,
+    uploadedAtClient: Number(raw.uploadedAtClient ?? 0),
+  }
+}
+
 export function toRemoteUser(id: string, data: Record<string, unknown>): RemoteUser | null {
   const email = String(data.email ?? '')
   const fullName = String(data.fullName ?? '')
@@ -37,6 +57,7 @@ export function toRemoteUser(id: string, data: Record<string, unknown>): RemoteU
     balance: Number(data.balance ?? 0),
     lastChatReadAt: Number(data.lastChatReadAt ?? 0),
     notificationSettings: normalizeNotificationSettings(data.notificationSettings),
+    avatar: normalizeUserAvatar(data.avatar),
     phone: String(data.phone ?? ''),
     login: String(data.login ?? ''),
   }

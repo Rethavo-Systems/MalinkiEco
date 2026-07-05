@@ -15,6 +15,7 @@
 } from 'firebase/firestore'
 import { push, ref, set, type Database } from 'firebase/database'
 import type {
+  ChatAttachment,
   ChatMessage,
   CommunityEvent,
   EventType,
@@ -657,19 +658,21 @@ export async function sendChatMessage(
   text: string,
   replyTo: ChatMessage | null,
   mentionedUserIds: string[] = [],
+  attachments: ChatAttachment[] = [],
 ) {
   const normalizedText = text.trim()
-  if (!normalizedText) return
+  if (!normalizedText && attachments.length === 0) return
 
   await addDoc(collection(db, 'chat_messages'), {
     senderId: profile.id,
     senderName: profile.fullName,
     senderPlotName: formatPlots(profile),
     text: normalizedText,
+    attachments,
     replyToMessageId: replyTo?.id ?? '',
     replyToSenderName: replyTo?.senderName ?? '',
     replyToSenderPlotName: replyTo?.senderPlotName ?? '',
-    replyToText: replyTo?.text ?? '',
+    replyToText: replyTo?.text || (replyTo?.attachments.length ? 'Вложение' : ''),
     mentionedUserIds: Array.from(new Set(mentionedUserIds.map((item) => item.trim()).filter(Boolean))),
     isPinned: false,
     pinnedByUserId: '',

@@ -26,9 +26,20 @@ export type RemoteUser = {
   balance: number
   lastChatReadAt: number
   notificationSettings: NotificationSettings
+  avatar: UserAvatar | null
   phone?: string
   login?: string
   isPlaceholder?: boolean
+}
+
+export type UserAvatar = {
+  id: string
+  name: string
+  contentType: string
+  size: number
+  downloadPath: string
+  storageKey: string
+  uploadedAtClient: number
 }
 
 export type CommunityEvent = {
@@ -55,6 +66,7 @@ export type ChatMessage = {
   senderName: string
   senderPlotName: string
   text: string
+  attachments: ChatAttachment[]
   replyToMessageId: string
   replyToSenderName: string
   replyToSenderPlotName: string
@@ -64,6 +76,19 @@ export type ChatMessage = {
   pinnedAtClient: number
   createdAtClient: number
   updatedAtClient: number
+}
+
+export type ChatAttachmentKind = 'image' | 'video' | 'file'
+
+export type ChatAttachment = {
+  id: string
+  name: string
+  contentType: string
+  size: number
+  kind: ChatAttachmentKind
+  downloadPath: string
+  uploadedAtClient: number
+  expiresAtClient: number
 }
 
 export type PaymentTransferConfig = {

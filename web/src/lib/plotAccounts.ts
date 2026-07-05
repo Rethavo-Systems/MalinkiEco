@@ -142,6 +142,7 @@ export function buildOwnersDirectory(users: RemoteUser[], plotBalances: Map<stri
       balance: sumBalanceForPlots(plotBalances, [plot], 0),
       lastChatReadAt: 0,
       notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
+      avatar: null,
       phone: '',
       login: '',
       isPlaceholder: true,
