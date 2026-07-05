@@ -1,6 +1,6 @@
 import { auth } from './firebase'
 
-const PRODUCTION_GATE_API_BASE_URL = 'https://malinkieco-gate.kiriklass228.workers.dev'
+const PRODUCTION_GATE_API_BASE_URL = 'https://gate.rethavo.ru'
 
 export type GateOpenResponse = {
   ok: boolean
