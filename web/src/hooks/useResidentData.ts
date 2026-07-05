@@ -16,6 +16,8 @@ import { db, firebaseSetup } from '../lib/firebase'
 import { PLOTS_COLLECTION, buildOwnersDirectory, normalizePlotName } from '../lib/plotAccounts'
 import type {
   AuditLogEntry,
+  ChatAttachment,
+  ChatAttachmentKind,
   ChatMessage,
   CommunityEvent,
   EventType,
@@ -47,6 +49,36 @@ function parseLegacyEventIds(value: unknown): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function parseChatAttachmentKind(value: unknown): ChatAttachmentKind {
+  return value === 'image' || value === 'video' || value === 'file' ? value : 'file'
+}
+
+function parseChatAttachments(value: unknown): ChatAttachment[] {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const data = item as Record<string, unknown>
+      const id = String(data.id ?? '').trim()
+      const name = String(data.name ?? '').trim()
+      const downloadPath = String(data.downloadPath ?? '').trim()
+      if (!id || !name || !downloadPath) return null
+
+      return {
+        id,
+        name,
+        contentType: String(data.contentType ?? 'application/octet-stream'),
+        size: Number(data.size ?? 0),
+        kind: parseChatAttachmentKind(data.kind),
+        downloadPath,
+        uploadedAtClient: Number(data.uploadedAtClient ?? 0),
+        expiresAtClient: Number(data.expiresAtClient ?? 0),
+      }
+    })
+    .filter((item): item is ChatAttachment => item !== null)
 }
 
 function toManualPaymentRequest(item: QueryDocumentSnapshot<DocumentData>, statusFallback?: ManualPaymentStatus): ManualPaymentRequest {
@@ -178,6 +210,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
               senderName: String(data.senderName ?? ''),
               senderPlotName: String(data.senderPlotName ?? ''),
               text: String(data.text ?? ''),
+              attachments: parseChatAttachments(data.attachments),
               replyToMessageId: String(data.replyToMessageId ?? ''),
               replyToSenderName: String(data.replyToSenderName ?? ''),
               replyToSenderPlotName: String(data.replyToSenderPlotName ?? ''),

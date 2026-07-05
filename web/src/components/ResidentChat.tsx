@@ -1,5 +1,13 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  CHAT_FILE_MAX_COUNT,
+  downloadChatAttachment,
+  downloadChatAttachmentToDevice,
+  validateChatFile,
+} from '../lib/chatFilesApi'
+import { useAvatarObjectUrl } from '../hooks/useAvatarObjectUrl'
+import type { UserAvatar } from '../types'
 import './ResidentChat.css'
 
 export type ResidentChatProfile = {
@@ -8,6 +16,7 @@ export type ResidentChatProfile = {
   plotName: string
   plots: string[]
   lastChatReadAt: number
+  avatar: UserAvatar | null
 }
 
 export type ResidentChatUser = {
@@ -15,6 +24,7 @@ export type ResidentChatUser = {
   fullName: string
   plotName: string
   plots: string[]
+  avatar: UserAvatar | null
 }
 
 export type ResidentChatMessage = {
@@ -23,6 +33,7 @@ export type ResidentChatMessage = {
   senderName: string
   senderPlotName: string
   text: string
+  attachments: ResidentChatAttachment[]
   replyToMessageId: string
   replyToSenderName: string
   replyToSenderPlotName: string
@@ -34,12 +45,28 @@ export type ResidentChatMessage = {
   updatedAtClient: number
 }
 
+export type ResidentChatAttachment = {
+  id: string
+  name: string
+  contentType: string
+  size: number
+  kind: 'image' | 'video' | 'file'
+  downloadPath: string
+  uploadedAtClient: number
+  expiresAtClient: number
+}
+
 type ResidentChatProps = {
   profile: ResidentChatProfile
   users: ResidentChatUser[]
   messages: ResidentChatMessage[]
   readerCutoff: number
-  onSend: (text: string, replyTo: ResidentChatMessage | null, mentionedUserIds: string[]) => Promise<void>
+  onSend: (
+    text: string,
+    replyTo: ResidentChatMessage | null,
+    mentionedUserIds: string[],
+    files: File[],
+  ) => Promise<void>
   onSaveEdit: (messageId: string, text: string) => Promise<void>
   onDelete: (message: ResidentChatMessage) => Promise<void>
   onTogglePin: (message: ResidentChatMessage) => Promise<void>
@@ -50,6 +77,23 @@ type ChatMenuState = {
   message: ResidentChatMessage
   x: number
   y: number
+}
+
+type SelectedChatFile = {
+  id: string
+  file: File
+  previewUrl: string
+}
+
+function chatInitials(value: string): string {
+  const parts = value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (parts.length === 0) return 'ML'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase()
 }
 
 const MENU_WIDTH = 196
@@ -78,6 +122,11 @@ export function ResidentChat({
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false)
   const [selectedMentionedUsers, setSelectedMentionedUsers] = useState<ResidentChatUser[]>([])
   const [everyoneMentionActive, setEveryoneMentionActive] = useState(false)
+  const [selectedFiles, setSelectedFiles] = useState<SelectedChatFile[]>([])
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false)
+  const selectedFilesRef = useRef<SelectedChatFile[]>([])
+  const rootRef = useRef<HTMLElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const previousLastMessageIdRef = useRef('')
@@ -90,6 +139,13 @@ export function ResidentChat({
     [profile.id, users],
   )
 
+  const avatarByUserId = useMemo(() => {
+    const nextMap = new Map<string, UserAvatar | null>()
+    users.forEach((user) => nextMap.set(user.id, user.avatar))
+    nextMap.set(profile.id, profile.avatar)
+    return nextMap
+  }, [profile.avatar, profile.id, users])
+
   const latestForeignTimestamp = useMemo(
     () => messages.filter((message) => message.senderId !== profile.id).at(-1)?.createdAtClient ?? 0,
     [messages, profile.id],
@@ -99,6 +155,26 @@ export function ResidentChat({
     if (latestForeignTimestamp > 0) {
       void onMarkRead(latestForeignTimestamp)
     }
+  }
+
+  const updateScrollToLatestButton = (list = listRef.current) => {
+    if (!list) return
+
+    const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
+    setShowScrollToLatest(distanceToBottom > 170)
+
+    if (distanceToBottom < 72) {
+      markLatestAsRead()
+    }
+  }
+
+  const scrollToLatestMessages = () => {
+    const list = listRef.current
+    if (!list) return
+
+    list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' })
+    setShowScrollToLatest(false)
+    markLatestAsRead()
   }
 
   useEffect(() => {
@@ -135,7 +211,10 @@ export function ResidentChat({
       requestAnimationFrame(() => {
         list.scrollTo({ top: list.scrollHeight, behavior: isSameLastMessage ? 'smooth' : 'auto' })
         markLatestAsRead()
+        updateScrollToLatestButton(list)
       })
+    } else {
+      updateScrollToLatestButton(list)
     }
 
     previousLastMessageIdRef.current = lastMessageId
@@ -161,6 +240,49 @@ export function ResidentChat({
       window.removeEventListener('keydown', closeByEscape)
     }
   }, [menu])
+
+  useEffect(() => {
+    selectedFilesRef.current = selectedFiles
+  }, [selectedFiles])
+
+  useEffect(
+    () => () => {
+      selectedFilesRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl))
+    },
+    [],
+  )
+
+  useEffect(() => {
+    let frame = 0
+
+    const updateChatHeight = () => {
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(() => {
+        const root = rootRef.current
+        if (!root) return
+
+        const viewportHeight = window.visualViewport?.height ?? window.innerHeight
+        const isCompact = window.innerWidth <= 640
+        const edgeGap = isCompact ? 8 : 16
+        const chatJumpFootprint = isCompact ? 34 : 40
+        const maximumHeight = Math.max(280, viewportHeight - edgeGap - chatJumpFootprint)
+        const minimumHeight = Math.min(isCompact ? 380 : 460, maximumHeight)
+        const nextHeight = Math.max(minimumHeight, maximumHeight)
+
+        root.style.setProperty('--resident-chat-height', `${Math.round(nextHeight)}px`)
+      })
+    }
+
+    updateChatHeight()
+    window.addEventListener('resize', updateChatHeight)
+    window.visualViewport?.addEventListener('resize', updateChatHeight)
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', updateChatHeight)
+      window.visualViewport?.removeEventListener('resize', updateChatHeight)
+    }
+  }, [])
 
   useEffect(() => {
     if (!input.trim()) {
@@ -254,20 +376,66 @@ export function ResidentChat({
     return Array.from(mentionedIds)
   }
 
+  const addFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return
+
+    const availableSlots = CHAT_FILE_MAX_COUNT - selectedFiles.length
+    if (availableSlots <= 0) {
+      window.alert(`Можно прикрепить не больше ${CHAT_FILE_MAX_COUNT} файлов.`)
+      return
+    }
+
+    const nextFiles: SelectedChatFile[] = []
+    for (const file of Array.from(files).slice(0, availableSlots)) {
+      try {
+        validateChatFile(file)
+        nextFiles.push({
+          id: `${file.name}-${file.lastModified}-${crypto.randomUUID()}`,
+          file,
+          previewUrl: URL.createObjectURL(file),
+        })
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Не удалось добавить файл.')
+      }
+    }
+
+    setSelectedFiles((current) => [...current, ...nextFiles])
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const removeSelectedFile = (fileId: string) => {
+    setSelectedFiles((current) => {
+      const target = current.find((item) => item.id === fileId)
+      if (target) URL.revokeObjectURL(target.previewUrl)
+      return current.filter((item) => item.id !== fileId)
+    })
+  }
+
+  const clearSelectedFiles = () => {
+    setSelectedFiles((current) => {
+      current.forEach((item) => URL.revokeObjectURL(item.previewUrl))
+      return []
+    })
+  }
+
   const handleSend = async () => {
     const normalized = input.trim()
-    if (!normalized || sending) return
+    if ((!normalized && selectedFiles.length === 0) || sending) return
 
     const mentionedUserIds = resolveMentionedUserIds(normalized)
+    const filesToSend = selectedFiles.map((item) => item.file)
 
     setSending(true)
     try {
-      await onSend(normalized, replyingTo, mentionedUserIds)
+      await onSend(normalized, replyingTo, mentionedUserIds, filesToSend)
       setInput('')
       setReplyingTo(null)
       setSelectedMentionedUsers([])
       setEveryoneMentionActive(false)
       setMentionPickerOpen(false)
+      clearSelectedFiles()
     } finally {
       setSending(false)
     }
@@ -299,10 +467,13 @@ export function ResidentChat({
   }
 
   const scrollToMessage = (messageId: string) => {
-    document.getElementById(`chat-message-${messageId}`)?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
-    })
+    const list = listRef.current
+    const messageElement = document.getElementById(`chat-message-${messageId}`)
+    if (!list || !messageElement) return
+
+    const targetTop =
+      messageElement.offsetTop - list.offsetTop - list.clientHeight / 2 + messageElement.clientHeight / 2
+    list.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
   }
 
   const readStatusLabel = (message: ResidentChatMessage) => {
@@ -311,13 +482,7 @@ export function ResidentChat({
   }
 
   return (
-    <section className="panel resident-chat" onClick={() => setMenu(null)}>
-      <div className="panel-heading">
-        <p className="eyebrow accent">Раздел</p>
-        <h2>Чат поселка</h2>
-        <p>Общий чат собственников с ответами, редактированием сообщений, закреплением и упоминаниями.</p>
-      </div>
-
+    <section ref={rootRef} className="panel resident-chat" onClick={() => setMenu(null)}>
       {activePinnedMessage && (
         <button
           className="resident-chat__pinned"
@@ -330,13 +495,15 @@ export function ResidentChat({
           }}
         >
           <span className="resident-chat__pinned-count">
-            Закрепленное сообщение {Math.min(pinnedCursor + 1, pinnedMessages.length)} из {pinnedMessages.length}
+            Закреплено {Math.min(pinnedCursor + 1, pinnedMessages.length)}/{pinnedMessages.length}
           </span>
           <strong className="resident-chat__pinned-title">
             {activePinnedMessage.senderName}
             {activePinnedMessage.senderPlotName ? ` · ${activePinnedMessage.senderPlotName}` : ''}
           </strong>
-          <span className="resident-chat__pinned-body">{activePinnedMessage.text}</span>
+          <span className="resident-chat__pinned-body">
+            {activePinnedMessage.text || (activePinnedMessage.attachments.length > 0 ? 'Вложение' : 'Сообщение')}
+          </span>
         </button>
       )}
 
@@ -344,11 +511,7 @@ export function ResidentChat({
         ref={listRef}
         className="resident-chat__list"
         onScroll={(event) => {
-          const list = event.currentTarget
-          const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
-          if (distanceToBottom < 72) {
-            markLatestAsRead()
-          }
+          updateScrollToLatestButton(event.currentTarget)
         }}
       >
         {messages.length === 0 ? (
@@ -358,31 +521,36 @@ export function ResidentChat({
             const isMine = message.senderId === profile.id
             const isEditing = editingId === message.id
             const mentionedMe = message.mentionedUserIds.includes(profile.id)
+            const senderAvatar = avatarByUserId.get(message.senderId) ?? null
 
             return (
-              <article
+              <div
                 id={`chat-message-${message.id}`}
                 key={message.id}
-                className={`resident-chat__bubble ${isMine ? 'is-mine' : 'is-other'} ${message.isPinned ? 'is-pinned' : ''} ${mentionedMe ? 'is-mentioned' : ''}`}
-                onContextMenu={(event) => openContextMenu(event, message)}
-                onTouchStart={(event) => {
-                  const element = event.currentTarget as HTMLElement
-                  const timer = window.setTimeout(() => openTouchMenu(element, message), 420)
-                  element.dataset.longPressTimer = String(timer)
-                }}
-                onTouchEnd={(event) => {
-                  const element = event.currentTarget as HTMLElement
-                  const timer = Number(element.dataset.longPressTimer ?? '0')
-                  if (timer) window.clearTimeout(timer)
-                  element.dataset.longPressTimer = ''
-                }}
-                onTouchMove={(event) => {
-                  const element = event.currentTarget as HTMLElement
-                  const timer = Number(element.dataset.longPressTimer ?? '0')
-                  if (timer) window.clearTimeout(timer)
-                  element.dataset.longPressTimer = ''
-                }}
+                className={`resident-chat__message-row ${isMine ? 'is-mine' : 'is-other'}`}
               >
+                {!isMine && <ChatMessageAvatar name={message.senderName} avatar={senderAvatar} />}
+                <article
+                  className={`resident-chat__bubble ${isMine ? 'is-mine' : 'is-other'} ${message.isPinned ? 'is-pinned' : ''} ${mentionedMe ? 'is-mentioned' : ''}`}
+                  onContextMenu={(event) => openContextMenu(event, message)}
+                  onTouchStart={(event) => {
+                    const element = event.currentTarget as HTMLElement
+                    const timer = window.setTimeout(() => openTouchMenu(element, message), 420)
+                    element.dataset.longPressTimer = String(timer)
+                  }}
+                  onTouchEnd={(event) => {
+                    const element = event.currentTarget as HTMLElement
+                    const timer = Number(element.dataset.longPressTimer ?? '0')
+                    if (timer) window.clearTimeout(timer)
+                    element.dataset.longPressTimer = ''
+                  }}
+                  onTouchMove={(event) => {
+                    const element = event.currentTarget as HTMLElement
+                    const timer = Number(element.dataset.longPressTimer ?? '0')
+                    if (timer) window.clearTimeout(timer)
+                    element.dataset.longPressTimer = ''
+                  }}
+                >
                 <div className="resident-chat__meta">
                   <span className="resident-chat__author">
                     {message.senderName}
@@ -421,7 +589,15 @@ export function ResidentChat({
                       </button>
                     )}
 
-                    <p className="resident-chat__text">{message.text}</p>
+                    {message.text ? <p className="resident-chat__text">{message.text}</p> : null}
+
+                    {message.attachments.length > 0 && (
+                      <div className="resident-chat__attachments">
+                        {message.attachments.map((attachment) => (
+                          <ChatAttachmentCard key={attachment.id} attachment={attachment} />
+                        ))}
+                      </div>
+                    )}
 
                     <div className="resident-chat__footer">
                       <span className="resident-chat__flags">
@@ -433,11 +609,25 @@ export function ResidentChat({
                     </div>
                   </>
                 )}
-              </article>
+                </article>
+                {isMine && <ChatMessageAvatar name={message.senderName} avatar={senderAvatar} />}
+              </div>
             )
           })
         )}
       </div>
+
+      <button
+        className={`resident-chat__to-latest ${showScrollToLatest ? 'is-visible' : ''}`}
+        type="button"
+        onClick={scrollToLatestMessages}
+        aria-label="Перейти к последним сообщениям"
+        title="К последним сообщениям"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
 
       <div className="resident-chat__compose">
         {replyingTo && (
@@ -456,58 +646,105 @@ export function ResidentChat({
         )}
 
         <div className="resident-chat__compose-box" onClick={(event) => event.stopPropagation()}>
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="Введите сообщение для общего чата..."
-            rows={3}
-          />
-
-          {mentionPickerOpen && (
-            <div className="resident-chat__mention-picker">
-              {mentionCandidates.length === 0 ? (
-                <div className="resident-chat__mention-empty">Пока некого отмечать</div>
-              ) : (
-                <>
-                  <button
-                    className={`resident-chat__mention-option ${everyoneMentionActive ? 'is-selected' : ''}`}
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => insertMentionToken(EVERYONE_LABEL)}
-                  >
-                    <strong>{EVERYONE_LABEL}</strong>
-                    <span>Уведомить всех собственников</span>
-                  </button>
-
-                  {mentionCandidates.map((user) => {
-                    const plots = formatUserPlots(user)
-                    const selected = selectedMentionedUsers.some((item) => item.id === user.id)
-
-                    return (
-                      <button
-                        key={user.id}
-                        className={`resident-chat__mention-option ${selected ? 'is-selected' : ''}`}
-                        type="button"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => insertMentionToken(`@${user.fullName}`, user)}
-                      >
-                        <strong>@{user.fullName}</strong>
-                        <span>{plots || 'Без участка'}</span>
-                      </button>
-                    )
-                  })}
-                </>
-              )}
+          {selectedFiles.length > 0 && (
+            <div className="resident-chat__selected-files">
+              {selectedFiles.map((item) => (
+                <SelectedFilePreview key={item.id} item={item} onRemove={() => removeSelectedFile(item.id)} />
+              ))}
             </div>
           )}
-        </div>
 
-        <div className="resident-chat__compose-actions">
-          <span className="resident-chat__hint">Напишите `@`, чтобы выбрать `@все` или конкретного собственника.</span>
-          <button className="primary-button" onClick={() => void handleSend()} disabled={sending}>
-            {sending ? 'Отправляем...' : 'Отправить'}
-          </button>
+          <div className="resident-chat__composer-row">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+              className="resident-chat__file-input"
+              onChange={(event) => addFiles(event.target.files)}
+            />
+            <button
+              className="resident-chat__icon-button resident-chat__attach-button"
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending || selectedFiles.length >= CHAT_FILE_MAX_COUNT}
+              aria-label="Прикрепить фото или файл"
+              title="Прикрепить фото или файл"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.6-9.6a4.1 4.1 0 0 1 5.8 5.8l-9.7 9.7a2.2 2.2 0 0 1-3.1-3.1l8.6-8.6" />
+              </svg>
+            </button>
+
+            <div className="resident-chat__input-wrap">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="Сообщение"
+                rows={1}
+              />
+
+              {mentionPickerOpen && (
+                <div className="resident-chat__mention-picker">
+                  {mentionCandidates.length === 0 ? (
+                    <div className="resident-chat__mention-empty">Пока некого отмечать</div>
+                  ) : (
+                    <>
+                      <button
+                        className={`resident-chat__mention-option ${everyoneMentionActive ? 'is-selected' : ''}`}
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => insertMentionToken(EVERYONE_LABEL)}
+                      >
+                        <strong>{EVERYONE_LABEL}</strong>
+                        <span>Уведомить всех собственников</span>
+                      </button>
+
+                      {mentionCandidates.map((user) => {
+                        const plots = formatUserPlots(user)
+                        const selected = selectedMentionedUsers.some((item) => item.id === user.id)
+
+                        return (
+                          <button
+                            key={user.id}
+                            className={`resident-chat__mention-option ${selected ? 'is-selected' : ''}`}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => insertMentionToken(`@${user.fullName}`, user)}
+                          >
+                            <strong>@{user.fullName}</strong>
+                            <span>{plots || 'Без участка'}</span>
+                          </button>
+                        )
+                      })}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <button
+              className="resident-chat__send-button"
+              onClick={() => void handleSend()}
+              disabled={sending || (!input.trim() && selectedFiles.length === 0)}
+              aria-label="Отправить сообщение"
+              title="Отправить сообщение"
+            >
+              {sending ? (
+                <span className="resident-chat__send-loader" aria-hidden="true" />
+              ) : (
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 12h13" />
+                  <path d="m13 6 6 6-6 6" />
+                </svg>
+              )}
+            </button>
+          </div>
+
+          <span className="resident-chat__hint">
+            Фото, видео и файлы до 25 МБ. Упоминание начинается с @.
+          </span>
         </div>
       </div>
 
@@ -552,6 +789,124 @@ export function ResidentChat({
         )}
     </section>
   )
+}
+
+function ChatMessageAvatar({ name, avatar }: { name: string; avatar: UserAvatar | null }) {
+  const avatarUrl = useAvatarObjectUrl(avatar?.downloadPath ?? '')
+
+  return (
+    <span className="resident-chat__avatar" aria-hidden="true">
+      {avatarUrl ? <img src={avatarUrl} alt="" loading="lazy" /> : <span>{chatInitials(name)}</span>}
+    </span>
+  )
+}
+
+function ChatAttachmentCard({ attachment }: { attachment: ResidentChatAttachment }) {
+  const cardRef = useRef<HTMLButtonElement | null>(null)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [previewFailed, setPreviewFailed] = useState(false)
+  const [previewRequested, setPreviewRequested] = useState(false)
+  const isImage = attachment.kind === 'image'
+
+  useEffect(() => {
+    if (!isImage) return
+
+    const target = cardRef.current
+    if (!target || typeof IntersectionObserver === 'undefined') {
+      setPreviewRequested(true)
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return
+        setPreviewRequested(true)
+        observer.disconnect()
+      },
+      { rootMargin: '180px' },
+    )
+    observer.observe(target)
+
+    return () => observer.disconnect()
+  }, [isImage])
+
+  useEffect(() => {
+    if (!isImage || !previewRequested) return
+
+    let disposed = false
+    let objectUrl = ''
+    downloadChatAttachment(attachment)
+      .then((blob) => {
+        if (disposed) return
+        objectUrl = URL.createObjectURL(blob)
+        setPreviewUrl(objectUrl)
+      })
+      .catch(() => {
+        if (!disposed) setPreviewFailed(true)
+      })
+
+    return () => {
+      disposed = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [attachment, isImage, previewRequested])
+
+  const handleDownload = async () => {
+    try {
+      await downloadChatAttachmentToDevice(attachment)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Не удалось скачать файл.')
+    }
+  }
+
+  return (
+    <button ref={cardRef} className={`resident-chat__attachment is-${attachment.kind}`} type="button" onClick={handleDownload}>
+      {isImage ? (
+        previewUrl ? (
+          <img src={previewUrl} alt={attachment.name} loading="lazy" />
+        ) : (
+          <span className="resident-chat__attachment-icon">{previewFailed ? '!' : 'IMG'}</span>
+        )
+      ) : (
+        <span className="resident-chat__attachment-icon">{attachment.kind === 'video' ? 'VID' : 'FILE'}</span>
+      )}
+      <span className="resident-chat__attachment-info">
+        <strong>{attachment.name}</strong>
+        <small>{formatFileSize(attachment.size)}</small>
+      </span>
+    </button>
+  )
+}
+
+function SelectedFilePreview({ item, onRemove }: { item: SelectedChatFile; onRemove: () => void }) {
+  const isImage = item.file.type.startsWith('image/')
+  const isVideo = item.file.type.startsWith('video/')
+
+  return (
+    <div className="resident-chat__selected-file">
+      <div className="resident-chat__selected-preview">
+        {isImage ? (
+          <img src={item.previewUrl} alt={item.file.name} />
+        ) : (
+          <span>{isVideo ? 'VID' : 'FILE'}</span>
+        )}
+      </div>
+      <div className="resident-chat__selected-info">
+        <strong>{item.file.name}</strong>
+        <small>{formatFileSize(item.file.size)}</small>
+      </div>
+      <button type="button" onClick={onRemove} aria-label={`Убрать ${item.file.name}`}>
+        Убрать
+      </button>
+    </div>
+  )
+}
+
+function formatFileSize(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 Б'
+  if (value < 1024) return `${Math.round(value)} Б`
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} КБ`
+  return `${(value / 1024 / 1024).toFixed(value > 10 * 1024 * 1024 ? 0 : 1)} МБ`
 }
 
 function formatTime(value: number): string {

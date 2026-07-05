@@ -51,10 +51,13 @@ import { useResidentAuth } from './hooks/useResidentAuth'
 import { useResidentData } from './hooks/useResidentData'
 import { useResidentProfile } from './hooks/useResidentProfile'
 import { useWebPush } from './hooks/useWebPush'
+import { useAvatarObjectUrl } from './hooks/useAvatarObjectUrl'
+import { deleteUserAvatar, uploadChatFile, uploadUserAvatar } from './lib/chatFilesApi'
 import { openGate as openGateRequest } from './lib/gateApi'
 import { clearRequestedTabFromUrl, readRequestedTabFromUrl } from './lib/webPush'
 import type {
   ChatMessage,
+  ChatAttachment,
   CommunityEvent,
   EventType,
   ManualPaymentRequest,
@@ -84,6 +87,17 @@ const GATE_UI_COOLDOWN_MS = 10_000
 
 type TabSeenState = Record<TabKey, number>
 
+function userInitials(value: string): string {
+  const parts = value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (parts.length === 0) return 'ML'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase()
+}
+
 function emptySeenState(): TabSeenState {
   return {
     events: 0,
@@ -101,12 +115,17 @@ function App() {
   const [pollSubmitting, setPollSubmitting] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
+  const [avatarInputElement, setAvatarInputElement] = useState<HTMLInputElement | null>(null)
+  const [avatarBusy, setAvatarBusy] = useState(false)
   const [savingProfileChangeRequest, setSavingProfileChangeRequest] = useState(false)
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false)
   const [sendingSupportRequest, setSendingSupportRequest] = useState(false)
   const [gateOpening, setGateOpening] = useState(false)
   const [localGateCooldownUntil, setLocalGateCooldownUntil] = useState(0)
   const [gateClockNow, setGateClockNow] = useState(() => Date.now())
+  const [chatJumpDirection, setChatJumpDirection] = useState<'up' | 'down'>('up')
+  const [chatViewportElement, setChatViewportElement] = useState<HTMLElement | null>(null)
   const appGate = useAppGate()
   const { authUser, authLoading } = useFirebaseAuthState()
   const { pageNotice, showNotice, clearNotice } = usePageNotice()
@@ -156,6 +175,7 @@ function App() {
     auditLogs,
   } = useResidentData(maintenanceLocked ? null : profile, activeTab)
 
+  const profileAvatarUrl = useAvatarObjectUrl(profile?.avatar?.downloadPath ?? '')
   const isAdmin = profile?.role === 'ADMIN'
   const isStaff = isAdmin || profile?.role === 'MODERATOR'
   const gateCooldownUntilClient = Math.max(Number(gateStatus.cooldownUntilClient || 0), localGateCooldownUntil)
@@ -228,6 +248,64 @@ function App() {
     }
     setActiveTab(visibleTabs[0])
   }, [activeTab, visibleTabs])
+
+  useEffect(() => {
+    if (!avatarMenuOpen) return
+
+    const closeAvatarMenu = () => setAvatarMenuOpen(false)
+    window.addEventListener('click', closeAvatarMenu)
+
+    return () => {
+      window.removeEventListener('click', closeAvatarMenu)
+    }
+  }, [avatarMenuOpen])
+
+  useEffect(() => {
+    if (activeTab !== 'chat') {
+      setChatJumpDirection('up')
+      return
+    }
+
+    if (!chatViewportElement) return
+
+    const frame = window.requestAnimationFrame(() => {
+      const edgeGap = window.innerWidth <= 640 ? 0 : 4
+      const targetTop = chatViewportElement.getBoundingClientRect().top
+      window.scrollTo({
+        top: Math.max(0, window.scrollY + targetTop - edgeGap),
+        behavior: 'auto',
+      })
+      setChatJumpDirection('up')
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+    }
+  }, [activeTab, chatViewportElement])
+
+  useEffect(() => {
+    if (activeTab !== 'chat' || !chatViewportElement) return
+
+    let frame = 0
+    const updateJumpDirection = () => {
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(() => {
+        const threshold = Math.min(150, Math.max(72, window.innerHeight * 0.18))
+        const chatTop = chatViewportElement.getBoundingClientRect().top
+        setChatJumpDirection(chatTop > threshold ? 'down' : 'up')
+      })
+    }
+
+    updateJumpDirection()
+    window.addEventListener('scroll', updateJumpDirection, { passive: true })
+    window.addEventListener('resize', updateJumpDirection)
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', updateJumpDirection)
+      window.removeEventListener('resize', updateJumpDirection)
+    }
+  }, [activeTab, chatViewportElement])
 
   const chatReaderCutoff = useMemo(() => {
     if (!profile) return 0
@@ -341,6 +419,22 @@ function App() {
       logs: logsCount,
     }
   }, [auditLogs, isStaff, pendingOwnersItemsCount, seenTabs, unreadChatCount, visibleEvents, visiblePolls])
+
+  const showChatNavigation = () => {
+    if (chatJumpDirection === 'up') {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setChatJumpDirection('down')
+      return
+    }
+
+    if (!chatViewportElement) return
+    const edgeGap = window.innerWidth <= 640 ? 0 : 4
+    window.scrollTo({
+      top: Math.max(0, window.scrollY + chatViewportElement.getBoundingClientRect().top - edgeGap),
+      behavior: 'smooth',
+    })
+    setChatJumpDirection('up')
+  }
 
   const normalizeEmail = (value: string | undefined) => value?.trim().toLowerCase() ?? ''
 
@@ -482,6 +576,39 @@ function App() {
     setProfile(null)
   }
 
+  const handleAvatarFileChange = async (event: { target: HTMLInputElement }) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file || avatarBusy) return
+
+    setAvatarBusy(true)
+    try {
+      await uploadUserAvatar(file)
+      showNotice('Аватарка обновлена.')
+      setAvatarMenuOpen(false)
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Не удалось обновить аватарку.')
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+
+  const handleDeleteAvatar = async () => {
+    if (!profile?.avatar || avatarBusy) return
+
+    setAvatarBusy(true)
+    try {
+      await deleteUserAvatar()
+      showNotice('Аватарка удалена.')
+      setAvatarMenuOpen(false)
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Не удалось удалить аватарку.')
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+
   const handleSubmitProfileChangeRequest = async (payload: { fullName: string; phone: string }) => {
     if (!db || !profile || savingProfileChangeRequest) return
     setSavingProfileChangeRequest(true)
@@ -570,17 +697,27 @@ function App() {
     await markChatReadRequest(db, profile.id, latestSeen, profile.lastChatReadAt)
   }
 
-  const sendChatMessage = async (text: string, replyTo: ChatMessage | null, mentionedUserIds: string[] = []) => {
+  const sendChatMessage = async (
+    text: string,
+    replyTo: ChatMessage | null,
+    mentionedUserIds: string[] = [],
+    files: File[] = [],
+  ) => {
     if (!db || !profile) return
 
     try {
       const cleanMentionedUserIds = Array.from(new Set(mentionedUserIds.filter((item) => item && item !== profile.id)))
+      const attachments: ChatAttachment[] = []
+      for (const file of files) {
+        attachments.push(await uploadChatFile(file))
+      }
+      const notificationText = text.trim() || (attachments.length === 1 ? 'отправил вложение' : 'отправил вложения')
 
-      await sendChatMessageRequest(db, profile, text, replyTo, cleanMentionedUserIds)
+      await sendChatMessageRequest(db, profile, text, replyTo, cleanMentionedUserIds, attachments)
       try {
         await enqueueBroadcastNotification(db, {
           title: 'Новое сообщение в чате',
-          body: `${profile.fullName}: ${text.trim()}`,
+          body: `${profile.fullName}: ${notificationText}`,
           destination: 'chat',
           category: 'chat',
           excludedUserIds: [profile.id, ...cleanMentionedUserIds],
@@ -589,7 +726,7 @@ function App() {
         if (cleanMentionedUserIds.length > 0) {
           await enqueueTargetedNotification(db, {
             title: 'Вас отметили в чате',
-            body: `${profile.fullName} упомянул вас: ${text.trim()}`,
+            body: `${profile.fullName} упомянул вас: ${notificationText}`,
             destination: 'chat',
             category: 'mention',
             targetUserIds: cleanMentionedUserIds,
@@ -1237,13 +1374,53 @@ function App() {
   }
 
   return (
-    <div className="shell">
+    <div className={`shell ${activeTab === 'chat' ? 'shell--chat' : ''}`}>
       <div className="ambient ambient-left" />
       <div className="ambient ambient-right" />
 
       <header className="topbar">
         <div className="brand-lockup">
-          <div className="brand-pill">ML</div>
+          <div className="brand-avatar-shell" onClick={(event) => event.stopPropagation()}>
+            <input
+              ref={setAvatarInputElement}
+              className="brand-avatar-input"
+              type="file"
+              accept="image/*"
+              onChange={(event) => void handleAvatarFileChange(event)}
+            />
+            <button
+              className={`brand-pill brand-avatar-button ${profile.avatar ? 'has-avatar' : 'is-empty'} ${avatarBusy ? 'is-busy' : ''}`}
+              type="button"
+              onClick={() => setAvatarMenuOpen((current) => !current)}
+              aria-label="Аватарка профиля"
+              title="Аватарка профиля"
+            >
+              {profileAvatarUrl ? (
+                <img src={profileAvatarUrl} alt="" />
+              ) : (
+                <span className="brand-avatar-initials">{userInitials(profile.fullName)}</span>
+              )}
+              {!profile.avatar && (
+                <span className="brand-avatar-plus" aria-hidden="true">
+                  <svg viewBox="0 0 16 16">
+                    <path d="M8 3v10" />
+                    <path d="M3 8h10" />
+                  </svg>
+                </span>
+              )}
+              {avatarBusy && <span className="brand-avatar-loader" aria-hidden="true" />}
+            </button>
+            {avatarMenuOpen && (
+              <div className="brand-avatar-menu">
+                <button type="button" onClick={() => avatarInputElement?.click()} disabled={avatarBusy}>
+                  {profile.avatar ? 'Изменить аватарку' : 'Добавить аватарку'}
+                </button>
+                <button type="button" onClick={() => void handleDeleteAvatar()} disabled={!profile.avatar || avatarBusy}>
+                  Удалить аватарку
+                </button>
+              </div>
+            )}
+          </div>
           <div>
             <div className="brand-title-row">
               <p className="eyebrow accent">MalinkiEco</p>
@@ -1355,7 +1532,10 @@ function App() {
         onSubmit={handleSubmitSupportRequest}
       />
 
-      <main className="content-grid">
+      <main
+        ref={setChatViewportElement}
+        className={`content-grid ${activeTab === 'chat' ? 'content-grid--chat' : ''}`}
+      >
         {activeTab === 'events' && (
           <EventsSection
             profile={profile}
@@ -1369,17 +1549,34 @@ function App() {
         )}
 
         {activeTab === 'chat' && (
-          <ResidentChat
-            profile={profile}
-            users={users}
-            messages={chatMessages}
-            readerCutoff={chatReaderCutoff}
-            onSend={sendChatMessage}
-            onSaveEdit={saveEditedMessage}
-            onDelete={removeChatMessage}
-            onTogglePin={togglePinnedMessage}
-            onMarkRead={markChatRead}
-          />
+          <>
+            <button
+              className={`chat-screen-jump is-${chatJumpDirection}`}
+              type="button"
+              onClick={showChatNavigation}
+              aria-label={chatJumpDirection === 'up' ? 'Показать верхнюю панель и разделы' : 'Вернуться к чату'}
+              title={chatJumpDirection === 'up' ? 'Показать разделы' : 'Вернуться к чату'}
+            >
+              <span className="chat-screen-jump__arrows" aria-hidden="true">
+                <svg viewBox="0 0 32 16">
+                  <path d="M9 11 16 4l7 7" />
+                  <path d="M9 15 16 8l7 7" />
+                </svg>
+              </span>
+            </button>
+
+            <ResidentChat
+              profile={profile}
+              users={users}
+              messages={chatMessages}
+              readerCutoff={chatReaderCutoff}
+              onSend={sendChatMessage}
+              onSaveEdit={saveEditedMessage}
+              onDelete={removeChatMessage}
+              onTogglePin={togglePinnedMessage}
+              onMarkRead={markChatRead}
+            />
+          </>
         )}
 
         {activeTab === 'owners' && (
