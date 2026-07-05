@@ -160,8 +160,10 @@ service cloud.firestore {
           'pinnedByUserId',
           'pinnedByUserName',
           'pinnedAtClient',
+          'createdAt',
           'createdAtClient',
-          'updatedAtClient'
+          'updatedAtClient',
+          'clientNonce'
         ]) &&
         request.resource.data.senderId == request.auth.uid &&
         request.resource.data.senderName is string &&
@@ -189,8 +191,16 @@ service cloud.firestore {
         request.resource.data.pinnedByUserId == '' &&
         request.resource.data.pinnedByUserName == '' &&
         request.resource.data.pinnedAtClient == 0 &&
+        request.resource.data.createdAt is timestamp &&
         request.resource.data.createdAtClient is int &&
-        request.resource.data.updatedAtClient is int;
+        request.resource.data.updatedAtClient is int &&
+        (
+          !request.resource.data.keys().hasAny(['clientNonce']) ||
+          (
+            request.resource.data.clientNonce is string &&
+            request.resource.data.clientNonce.size() <= 80
+          )
+        );
     }
 
     match /users/{userId} {
