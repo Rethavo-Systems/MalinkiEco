@@ -52,7 +52,13 @@ import { useResidentData } from './hooks/useResidentData'
 import { useResidentProfile } from './hooks/useResidentProfile'
 import { useWebPush } from './hooks/useWebPush'
 import { useAvatarObjectUrl } from './hooks/useAvatarObjectUrl'
-import { AVATAR_FILE_MAX_SIZE_BYTES, deleteUserAvatar, uploadChatFile, uploadUserAvatar } from './lib/chatFilesApi'
+import {
+  AVATAR_FILE_MAX_SIZE_BYTES,
+  deleteChatAttachment,
+  deleteUserAvatar,
+  uploadChatFile,
+  uploadUserAvatar,
+} from './lib/chatFilesApi'
 import { openGate as openGateRequest } from './lib/gateApi'
 import { clearRequestedTabFromUrl, readRequestedTabFromUrl } from './lib/webPush'
 import type {
@@ -1010,6 +1016,13 @@ function App() {
     if (!db) return
     if (!window.confirm('Удалить это сообщение?')) return
     await removeChatMessageRequest(db, message.id)
+
+    if (message.attachments.length > 0) {
+      const results = await Promise.allSettled(message.attachments.map((attachment) => deleteChatAttachment(attachment)))
+      if (results.some((result) => result.status === 'rejected')) {
+        showNotice('Сообщение удалено, но часть вложений пока не удалось удалить с Диска.')
+      }
+    }
   }
 
   const voteInPoll = async (poll: CommunityEvent, option: string) => {
