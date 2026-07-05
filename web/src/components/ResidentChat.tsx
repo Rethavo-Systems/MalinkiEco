@@ -311,11 +311,9 @@ export function ResidentChat({
 
         const viewportHeight = window.visualViewport?.height ?? window.innerHeight
         const isCompact = window.innerWidth <= 640
-        const edgeGap = isCompact ? 6 : 16
-        const rootTop = root.getBoundingClientRect().top
-        const visibleTopGap =
-          rootTop > 0 && rootTop < viewportHeight * 0.72 ? Math.max(edgeGap, rootTop) : isCompact ? 40 : 46
-        const maximumHeight = Math.max(280, viewportHeight - visibleTopGap - edgeGap)
+        const edgeGap = isCompact ? 8 : 16
+        const chatJumpFootprint = isCompact ? 34 : 40
+        const maximumHeight = Math.max(280, viewportHeight - edgeGap - chatJumpFootprint)
         const minimumHeight = Math.min(isCompact ? 380 : 460, maximumHeight)
         const nextHeight = Math.max(minimumHeight, maximumHeight)
 
@@ -324,13 +322,11 @@ export function ResidentChat({
     }
 
     updateChatHeight()
-    window.addEventListener('scroll', updateChatHeight, { passive: true })
     window.addEventListener('resize', updateChatHeight)
     window.visualViewport?.addEventListener('resize', updateChatHeight)
 
     return () => {
       window.cancelAnimationFrame(frame)
-      window.removeEventListener('scroll', updateChatHeight)
       window.removeEventListener('resize', updateChatHeight)
       window.visualViewport?.removeEventListener('resize', updateChatHeight)
     }
