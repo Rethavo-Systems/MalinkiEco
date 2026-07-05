@@ -71,6 +71,7 @@ type ResidentChatProps = {
   onDelete: (message: ResidentChatMessage) => Promise<void>
   onTogglePin: (message: ResidentChatMessage) => Promise<void>
   onMarkRead: (latestSeen: number) => Promise<void>
+  activationKey?: number
 }
 
 type ChatMenuState = {
@@ -111,6 +112,7 @@ export function ResidentChat({
   onDelete,
   onTogglePin,
   onMarkRead,
+  activationKey = 0,
 }: ResidentChatProps) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -193,12 +195,12 @@ export function ResidentChat({
     })
   }
 
-  const scrollToLatestMessages = () => {
+  const scrollToLatestMessages = (behavior: ScrollBehavior = 'smooth') => {
     const list = listRef.current
     if (!list) return
 
     stickToLatestRef.current = true
-    list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' })
+    list.scrollTo({ top: list.scrollHeight, behavior })
     setShowScrollToLatest(false)
     markLatestAsRead()
     settleScrollToLatest(list)
@@ -248,6 +250,13 @@ export function ResidentChat({
 
     previousLastMessageIdRef.current = lastMessageId
   }, [messages, latestForeignTimestamp])
+
+  useEffect(() => {
+    if (activationKey <= 0) return
+
+    stickToLatestRef.current = true
+    scrollToLatestMessages('auto')
+  }, [activationKey])
 
   useEffect(() => {
     if (!menu) return
@@ -656,7 +665,7 @@ export function ResidentChat({
       <button
         className={`resident-chat__to-latest ${showScrollToLatest ? 'is-visible' : ''}`}
         type="button"
-        onClick={scrollToLatestMessages}
+        onClick={() => scrollToLatestMessages()}
         aria-label="Перейти к последним сообщениям"
         title="К последним сообщениям"
       >
