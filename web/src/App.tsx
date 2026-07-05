@@ -420,11 +420,13 @@ function App() {
 
     const scrollToChat = () => {
       const edgeGap = window.innerWidth <= 640 ? 0 : 4
-      window.scrollTo({
-        top: Math.max(0, window.scrollY + chatViewportElement.getBoundingClientRect().top - edgeGap),
-        behavior: 'auto',
+      window.requestAnimationFrame(() => {
+        chatViewportElement.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' })
+        if (edgeGap > 0) {
+          window.scrollBy({ top: -edgeGap, behavior: 'auto' })
+        }
+        setChatJumpDirection('up')
       })
-      setChatJumpDirection('up')
     }
 
     const timers = [0, 80, 180, 360, 560].map((delay) => window.setTimeout(scrollToChat, delay))
@@ -447,7 +449,7 @@ function App() {
             0,
             window.scrollY + chatViewportElement.getBoundingClientRect().top - edgeGap,
           )
-          if (window.scrollY > targetTop + 2) {
+          if (chatViewportElement.getBoundingClientRect().top < -2 && window.scrollY > targetTop + 2) {
             window.scrollTo({ top: targetTop, behavior: 'auto' })
           }
         }
@@ -591,10 +593,10 @@ function App() {
 
     if (!chatViewportElement) return
     const edgeGap = window.innerWidth <= 640 ? 0 : 4
-    window.scrollTo({
-      top: Math.max(0, window.scrollY + chatViewportElement.getBoundingClientRect().top - edgeGap),
-      behavior: 'smooth',
-    })
+    chatViewportElement.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'smooth' })
+    if (edgeGap > 0) {
+      window.setTimeout(() => window.scrollBy({ top: -edgeGap, behavior: 'smooth' }), 220)
+    }
     setChatJumpDirection('up')
   }
 
