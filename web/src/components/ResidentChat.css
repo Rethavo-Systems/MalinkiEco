@@ -140,6 +140,7 @@
 }
 
 .resident-chat__message-row {
+  flex: 0 0 auto;
   display: flex;
   align-items: flex-end;
   gap: 9px;
