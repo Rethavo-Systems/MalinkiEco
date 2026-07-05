@@ -1,5 +1,5 @@
-import { auth } from './firebase'
 import type { ChatAttachment, UserAvatar } from '../types'
+import { auth } from './firebase'
 
 const PRODUCTION_CHAT_FILES_API_BASE_URL = 'https://malinkieco-chat-files.kiriklass228.workers.dev'
 

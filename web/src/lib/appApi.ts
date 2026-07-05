@@ -681,7 +681,6 @@ export async function sendChatMessage(
     createdAt: serverTimestamp(),
     createdAtClient: Date.now(),
     updatedAtClient: 0,
-    clientNonce: '',
   })
 }
 

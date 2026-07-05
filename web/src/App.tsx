@@ -412,6 +412,25 @@ function App() {
   useEffect(() => {
     if (activeTab !== 'chat' || !chatViewportElement) return
 
+    const scrollToChat = () => {
+      const edgeGap = window.innerWidth <= 640 ? 0 : 4
+      window.scrollTo({
+        top: Math.max(0, window.scrollY + chatViewportElement.getBoundingClientRect().top - edgeGap),
+        behavior: 'auto',
+      })
+      setChatJumpDirection('up')
+    }
+
+    const timers = [0, 80, 180].map((delay) => window.setTimeout(scrollToChat, delay))
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer))
+    }
+  }, [activeTab, chatActivationKey, chatViewportElement])
+
+  useEffect(() => {
+    if (activeTab !== 'chat' || !chatViewportElement) return
+
     let frame = 0
     const updateJumpDirection = () => {
       window.cancelAnimationFrame(frame)
@@ -964,8 +983,15 @@ function App() {
       } catch {
         showNotice('Сообщение отправлено, но push-уведомление пока не поставлено в очередь.')
       }
-    } catch {
-      showNotice('Сообщение пока не отправилось. Проверьте интернет и попробуйте еще раз.')
+    } catch (error) {
+      const errorCode = String((error as { code?: string })?.code ?? '')
+      const errorMessage = error instanceof Error ? error.message : ''
+      const normalizedMessage =
+        errorCode.includes('permission-denied') || errorMessage.includes('Missing or insufficient permissions')
+          ? 'Не удалось сохранить сообщение. Обновите страницу и попробуйте еще раз.'
+          : errorMessage || 'Сообщение пока не отправилось. Попробуйте еще раз.'
+
+      showNotice(normalizedMessage)
       throw new Error('send-failed')
     }
   }
@@ -1852,6 +1878,9 @@ function App() {
                   <path d="M9 11 16 4l7 7" />
                   <path d="M9 15 16 8l7 7" />
                 </svg>
+              </span>
+              <span className="chat-screen-jump__label">
+                {chatJumpDirection === 'up' ? 'Разделы' : 'К чату'}
               </span>
             </button>
 
