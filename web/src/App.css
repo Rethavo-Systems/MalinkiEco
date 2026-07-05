@@ -12,7 +12,7 @@
 
 .shell--chat {
   min-height: 100dvh;
-  padding-bottom: 12px;
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
 }
 
 .ambient {
