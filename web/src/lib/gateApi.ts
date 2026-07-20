@@ -1,19 +1,22 @@
 import { auth } from './firebase'
+import { resilientApiFetch } from './resilientApi'
 
-const PRODUCTION_GATE_API_BASE_URL = 'https://malinkieco-gate.kiriklass228.workers.dev'
+const GATE_API_ENDPOINTS = [
+  String(import.meta.env.VITE_APP_API_BASE_URL ?? ''),
+  'https://gate.rethavo.ru',
+  'https://malinkieco-gate.kiriklass228.workers.dev',
+]
+
+const GATE_API_CONFIG = {
+  cacheKey: 'gate',
+  candidates: GATE_API_ENDPOINTS,
+  healthPath: '/api/gate/health',
+}
 
 export type GateOpenResponse = {
   ok: boolean
   error?: string
   cooldownUntilClient?: number
-}
-
-function apiBaseUrl() {
-  if (typeof window !== 'undefined' && window.location.hostname === 'malinkieco.rethavo.ru') {
-    return PRODUCTION_GATE_API_BASE_URL
-  }
-
-  return String(import.meta.env.VITE_APP_API_BASE_URL ?? '').trim().replace(/\/$/, '')
 }
 
 export async function openGate() {
@@ -22,20 +25,24 @@ export async function openGate() {
     throw new Error('Войдите в аккаунт, чтобы открыть ворота.')
   }
 
-  const baseUrl = apiBaseUrl()
   const token = await user.getIdToken()
   let response: Response
 
   try {
-    response = await fetch(`${baseUrl}/api/gate/open`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+    response = await resilientApiFetch(
+      GATE_API_CONFIG,
+      '/api/gate/open',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       },
-    })
+      { retryOnNetworkError: true, timeoutMs: 20_000 },
+    )
   } catch {
-    throw new Error('Не удалось связаться с сервером ворот. Проверьте интернет и попробуйте позже.')
+    throw new Error('Сервер ворот недоступен в этой сети. Переключите интернет и попробуйте еще раз.')
   }
 
   const payload = (await response.json().catch(() => ({}))) as GateOpenResponse

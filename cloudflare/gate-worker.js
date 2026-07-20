@@ -227,6 +227,10 @@ function assertRequiredEnv(env) {
 function jsonResponse(payload, status, request, env) {
   const origin = request.headers.get('Origin') || ''
   const allowedOrigin = String(env.APP_ORIGIN || 'https://malinkieco.rethavo.ru').trim()
+  const extraOrigins = String(env.APP_EXTRA_ORIGINS || 'http://127.0.0.1:5173,http://localhost:5173')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -234,7 +238,7 @@ function jsonResponse(payload, status, request, env) {
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
   }
 
-  if (origin && origin === allowedOrigin) {
+  if (origin && (origin === allowedOrigin || extraOrigins.includes(origin))) {
     headers['Access-Control-Allow-Origin'] = origin
     headers.Vary = 'Origin'
   }

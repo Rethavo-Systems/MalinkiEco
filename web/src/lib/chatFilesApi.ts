@@ -1,7 +1,18 @@
 import type { ChatAttachment, UserAvatar } from '../types'
 import { auth } from './firebase'
+import { resilientApiFetch } from './resilientApi'
 
-const PRODUCTION_CHAT_FILES_API_BASE_URL = 'https://malinkieco-chat-files.kiriklass228.workers.dev'
+const CHAT_FILES_API_ENDPOINTS = [
+  String(import.meta.env.VITE_CHAT_FILES_API_BASE_URL ?? ''),
+  'https://chat-files.rethavo.ru',
+  'https://malinkieco-chat-files.kiriklass228.workers.dev',
+]
+
+const CHAT_FILES_API_CONFIG = {
+  cacheKey: 'chat-files',
+  candidates: CHAT_FILES_API_ENDPOINTS,
+  healthPath: '/api/chat/health',
+}
 
 export const CHAT_FILE_MAX_SIZE_BYTES = 25 * 1024 * 1024
 export const CHAT_FILE_MAX_COUNT = 6
@@ -17,27 +28,6 @@ export type AvatarUploadResponse = {
   ok: boolean
   error?: string
   avatar?: UserAvatar | null
-}
-
-function apiBaseUrl() {
-  if (
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'malinkieco.rethavo.ru' ||
-      window.location.hostname === '127.0.0.1' ||
-      window.location.hostname === 'localhost')
-  ) {
-    return PRODUCTION_CHAT_FILES_API_BASE_URL
-  }
-
-  return String(import.meta.env.VITE_CHAT_FILES_API_BASE_URL ?? '').trim().replace(/\/$/, '')
-}
-
-function requireApiBaseUrl() {
-  const baseUrl = apiBaseUrl()
-  if (!baseUrl && typeof window !== 'undefined' && window.location.hostname !== 'malinkieco.rethavo.ru') {
-    throw new Error('Файловый сервер чата пока не настроен для локальной версии.')
-  }
-  return baseUrl
 }
 
 async function requireFirebaseToken() {
@@ -73,20 +63,25 @@ export function validateAvatarFile(file: File) {
 export async function uploadChatFile(file: File): Promise<ChatAttachment> {
   validateChatFile(file)
 
-  const baseUrl = requireApiBaseUrl()
   const token = await requireFirebaseToken()
   const formData = new FormData()
   formData.set('file', file)
 
   let response: Response
   try {
-    response = await fetch(`${baseUrl}/api/chat/files`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData,
-    })
+    response = await resilientApiFetch(
+      CHAT_FILES_API_CONFIG,
+      '/api/chat/files',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      },
+      // Uploads are not retried automatically: the first request may have reached storage.
+      { retryOnNetworkError: false },
+    )
   } catch {
-    throw new Error('Не удалось загрузить файл. Проверьте интернет и попробуйте еще раз.')
+    throw new Error('Не удалось загрузить файл через текущую сеть. Переключите интернет и повторите отправку.')
   }
 
   const payload = (await response.json().catch(() => ({}))) as ChatFileUploadResponse
@@ -98,16 +93,18 @@ export async function uploadChatFile(file: File): Promise<ChatAttachment> {
 }
 
 async function downloadProtectedFile(downloadPath: string): Promise<Blob> {
-  const baseUrl = requireApiBaseUrl()
   const token = await requireFirebaseToken()
 
   let response: Response
   try {
-    response = await fetch(`${baseUrl}${downloadPath}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    response = await resilientApiFetch(
+      CHAT_FILES_API_CONFIG,
+      downloadPath,
+      { headers: { Authorization: `Bearer ${token}` } },
+      { retryOnNetworkError: true, timeoutMs: 60_000 },
+    )
   } catch {
-    throw new Error('Не удалось скачать файл. Проверьте интернет и попробуйте еще раз.')
+    throw new Error('Не удалось скачать файл через текущую сеть. Попробуйте еще раз.')
   }
 
   if (!response.ok) {
@@ -121,20 +118,24 @@ async function downloadProtectedFile(downloadPath: string): Promise<Blob> {
 export async function uploadUserAvatar(file: File): Promise<UserAvatar> {
   validateAvatarFile(file)
 
-  const baseUrl = requireApiBaseUrl()
   const token = await requireFirebaseToken()
   const formData = new FormData()
   formData.set('file', file)
 
   let response: Response
   try {
-    response = await fetch(`${baseUrl}/api/chat/avatar`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData,
-    })
+    response = await resilientApiFetch(
+      CHAT_FILES_API_CONFIG,
+      '/api/chat/avatar',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      },
+      { retryOnNetworkError: false },
+    )
   } catch {
-    throw new Error('Не удалось загрузить аватарку. Проверьте интернет и попробуйте еще раз.')
+    throw new Error('Не удалось загрузить аватарку через текущую сеть. Переключите интернет и попробуйте еще раз.')
   }
 
   const payload = (await response.json().catch(() => ({}))) as AvatarUploadResponse
@@ -146,17 +147,21 @@ export async function uploadUserAvatar(file: File): Promise<UserAvatar> {
 }
 
 export async function deleteUserAvatar(): Promise<void> {
-  const baseUrl = requireApiBaseUrl()
   const token = await requireFirebaseToken()
 
   let response: Response
   try {
-    response = await fetch(`${baseUrl}/api/chat/avatar`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    response = await resilientApiFetch(
+      CHAT_FILES_API_CONFIG,
+      '/api/chat/avatar',
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { retryOnNetworkError: true, timeoutMs: 30_000 },
+    )
   } catch {
-    throw new Error('Не удалось удалить аватарку. Проверьте интернет и попробуйте еще раз.')
+    throw new Error('Не удалось удалить аватарку через текущую сеть. Попробуйте еще раз.')
   }
 
   const payload = (await response.json().catch(() => ({}))) as AvatarUploadResponse
@@ -174,17 +179,21 @@ export async function downloadChatAttachment(attachment: ChatAttachment): Promis
 }
 
 export async function deleteChatAttachment(attachment: ChatAttachment): Promise<void> {
-  const baseUrl = requireApiBaseUrl()
   const token = await requireFirebaseToken()
 
   let response: Response
   try {
-    response = await fetch(`${baseUrl}${attachment.downloadPath}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    response = await resilientApiFetch(
+      CHAT_FILES_API_CONFIG,
+      attachment.downloadPath,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { retryOnNetworkError: true, timeoutMs: 30_000 },
+    )
   } catch {
-    throw new Error('Не удалось удалить файл с Диска. Проверьте интернет и попробуйте еще раз.')
+    throw new Error('Не удалось удалить файл с Диска через текущую сеть. Попробуйте еще раз.')
   }
 
   const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string }
