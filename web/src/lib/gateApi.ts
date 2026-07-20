@@ -2,9 +2,9 @@ import { auth } from './firebase'
 import { resilientApiFetch } from './resilientApi'
 
 const GATE_API_ENDPOINTS = [
+  String(import.meta.env.VITE_RU_API_BASE_URL ?? ''),
   String(import.meta.env.VITE_APP_API_BASE_URL ?? ''),
   'https://gate.rethavo.ru',
-  String(import.meta.env.VITE_RU_API_BASE_URL ?? ''),
   'https://malinkieco-gate.kiriklass228.workers.dev',
 ]
 

@@ -74,7 +74,12 @@ async function probeEndpoint(baseUrl: string, healthPath: string) {
     HEALTH_CHECK_TIMEOUT_MS,
   )
 
-  if (!response.ok) {
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase()
+  const payload = contentType.includes('application/json')
+    ? await response.json().catch(() => null) as { ok?: boolean } | null
+    : null
+
+  if (!response.ok || payload?.ok !== true) {
     throw new Error(`Health check failed with status ${response.status}`)
   }
 
@@ -163,7 +168,16 @@ export async function resilientApiFetch(
   const firstBaseUrl = await resolveApiEndpoint(config)
 
   try {
-    return await fetchWithTimeout(buildEndpointUrl(firstBaseUrl, path), init, options.timeoutMs ?? 0)
+    const response = await fetchWithTimeout(buildEndpointUrl(firstBaseUrl, path), init, options.timeoutMs ?? 0)
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase()
+
+    // Mobile operators can return an HTML error page without rejecting fetch.
+    // Retry those responses, but keep genuine JSON application errors intact.
+    if (!response.ok && !contentType.includes('application/json')) {
+      throw new Error(`Endpoint returned a non-API response: ${response.status}`)
+    }
+
+    return response
   } catch (error) {
     invalidateApiEndpoint(config.cacheKey)
     if (!options.retryOnNetworkError) {

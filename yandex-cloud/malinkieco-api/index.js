@@ -71,11 +71,15 @@ module.exports.handler = async function handler(event) {
     ].forEach((header) => delete responseHeaders[header])
     Object.assign(responseHeaders, corsHeaders(origin))
 
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase()
+    const isTextResponse = contentType.includes('application/json') || contentType.startsWith('text/')
+    const responseBody = Buffer.from(await response.arrayBuffer())
+
     return {
       statusCode: response.status,
       headers: responseHeaders,
-      body: await response.text(),
-      isBase64Encoded: false,
+      body: isTextResponse ? responseBody.toString('utf8') : responseBody.toString('base64'),
+      isBase64Encoded: !isTextResponse,
     }
   } catch (error) {
     console.error('[malinkieco-yandex-proxy] upstream failed', error)

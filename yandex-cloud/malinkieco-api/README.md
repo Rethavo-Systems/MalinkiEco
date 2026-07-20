@@ -2,8 +2,10 @@
 
 This function is a small Russian-network fallback for the gate and chat-file APIs.
 It forwards only `/api/gate/*` and `/api/chat/*` requests to the existing secured
-Cloudflare Workers. Large files do not pass through the function: the chat API
-returns a temporary Yandex Disk URL and the browser uploads or downloads directly.
+Cloudflare Workers. Small avatar images can pass through the function so they work
+on restricted mobile networks. Large chat files do not pass through the function:
+the chat API returns a temporary Yandex Disk URL and the browser transfers them
+directly, avoiding function traffic and payload limits.
 
 Runtime settings:
 

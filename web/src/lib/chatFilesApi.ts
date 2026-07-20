@@ -3,9 +3,9 @@ import { auth } from './firebase'
 import { resilientApiFetch } from './resilientApi'
 
 const CHAT_FILES_API_ENDPOINTS = [
+  String(import.meta.env.VITE_RU_API_BASE_URL ?? ''),
   String(import.meta.env.VITE_CHAT_FILES_API_BASE_URL ?? ''),
   'https://chat-files.rethavo.ru',
-  String(import.meta.env.VITE_RU_API_BASE_URL ?? ''),
   'https://malinkieco-chat-files.kiriklass228.workers.dev',
 ]
 
@@ -179,19 +179,25 @@ export async function uploadUserAvatar(file: File): Promise<UserAvatar> {
   validateAvatarFile(file)
 
   try {
-    const preparation = await postAuthorizedJson<DirectUploadPreparation>('/api/chat/avatar/prepare', {
-      name: file.name,
-      size: file.size,
-      contentType: file.type,
-    })
-    const ticket = await uploadToTemporaryUrl(file, preparation)
-    const payload = await postAuthorizedJson<AvatarUploadResponse>(
-      '/api/chat/avatar/complete',
-      { ticket },
-      45_000,
+    const token = await requireFirebaseToken()
+    const formData = new FormData()
+    formData.append('file', file, file.name)
+    const response = await resilientApiFetch(
+      CHAT_FILES_API_CONFIG,
+      '/api/chat/avatar',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      },
+      { retryOnNetworkError: true, timeoutMs: 45_000 },
     )
+    const payload = (await response.json().catch(() => ({}))) as AvatarUploadResponse
+    if (!response.ok) {
+      throw new Error(payload.error || 'Сервер не смог загрузить аватарку.')
+    }
     if (!payload.ok || !payload.avatar) {
-      throw new Error(payload.error || 'Не удалось подтвердить загрузку аватарки.')
+      throw new Error(payload.error || 'Не удалось сохранить аватарку.')
     }
     return payload.avatar
   } catch (error) {
@@ -225,7 +231,24 @@ export async function deleteUserAvatar(): Promise<void> {
 }
 
 export async function downloadUserAvatar(downloadPath: string): Promise<Blob> {
-  return downloadProtectedFile(downloadPath)
+  const token = await requireFirebaseToken()
+  const response = await resilientApiFetch(
+    CHAT_FILES_API_CONFIG,
+    downloadPath,
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    },
+    { retryOnNetworkError: true, timeoutMs: 30_000 },
+  )
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as { error?: string }
+    throw new Error(payload.error || 'Не удалось загрузить аватарку.')
+  }
+
+  return response.blob()
 }
 
 export async function downloadChatAttachment(attachment: ChatAttachment): Promise<Blob> {
