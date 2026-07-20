@@ -12,6 +12,7 @@ const CHAT_FILES_CLEANUP_SCAN_LIMIT = 20000
 const CHAT_FILES_PREFIX = 'chat-files/'
 const AVATAR_FILE_MAX_SIZE_BYTES = 5 * 1024 * 1024
 const AVATAR_FILES_PREFIX = 'avatars/'
+const DIRECT_UPLOAD_TICKET_TTL_MS = 15 * 60 * 1000
 const YANDEX_DISK_API_BASE = 'https://cloud-api.yandex.net/v1/disk'
 const YANDEX_DISK_DEFAULT_BASE_PATH = 'MalinkiEco/chat'
 
@@ -39,8 +40,28 @@ export default {
       return uploadChatFile(request, env, ctx)
     }
 
+    if (request.method === 'POST' && url.pathname === '/api/chat/files/prepare') {
+      return prepareDirectChatFileUpload(request, env)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/chat/files/complete') {
+      return completeDirectChatFileUpload(request, env, ctx)
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/chat/avatar') {
       return uploadUserAvatar(request, env)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/chat/avatar/prepare') {
+      return prepareDirectAvatarUpload(request, env)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/chat/avatar/complete') {
+      return completeDirectAvatarUpload(request, env)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/chat/download-url') {
+      return createDirectDownloadUrl(request, env)
     }
 
     if (request.method === 'DELETE' && url.pathname === '/api/chat/avatar') {
@@ -61,6 +82,275 @@ export default {
 
     return jsonResponse({ ok: false, error: 'Маршрут не найден.' }, 404, request, env)
   },
+}
+
+async function prepareDirectChatFileUpload(request, env) {
+  try {
+    assertDirectUploadEnv(env)
+
+    const { actorId, actorDoc } = await getAuthorizedActor(request, env)
+    const gateDoc = await getFirestoreDocument(env, 'app_settings/app_gate')
+    ensureAppAvailableForActor(gateDoc, String(actorDoc.role || 'USER'))
+
+    const input = await request.json().catch(() => ({}))
+    const originalName = String(input.name || 'file')
+    const fileSize = Number(input.size || 0)
+    const contentType = String(input.contentType || 'application/octet-stream').slice(0, 200)
+    if (fileSize <= 0) {
+      return jsonResponse({ ok: false, error: 'Нельзя загрузить пустой файл.' }, 400, request, env)
+    }
+    if (fileSize > CHAT_FILE_MAX_SIZE_BYTES) {
+      return jsonResponse({ ok: false, error: 'Файл больше 25 МБ.' }, 413, request, env)
+    }
+
+    const now = Date.now()
+    const fileId = crypto.randomUUID()
+    const cleanName = sanitizeFileName(originalName)
+    const expiresAtClient = now + CHAT_FILE_TTL_MS
+    const storageFileName = chatStorageFileName(expiresAtClient, fileId, cleanName)
+    const storageKey = `${CHAT_FILES_PREFIX}${storageFileName}`
+    const attachment = {
+      id: fileId,
+      name: cleanName,
+      contentType,
+      size: fileSize,
+      kind: chatAttachmentKind(contentType),
+      downloadPath: `/api/chat/files/${encodeURIComponent(storageFileName)}`,
+      uploadedAtClient: now,
+      expiresAtClient,
+    }
+    const upload = await createYandexUploadTarget(env, storageKey)
+    const ticket = await signDirectUploadTicket(env, {
+      kind: 'chat-file',
+      actorId,
+      storageKey,
+      attachment,
+      expiresAtClient: now + DIRECT_UPLOAD_TICKET_TTL_MS,
+    })
+
+    return jsonResponse(
+      { ok: true, uploadUrl: upload.href, uploadMethod: upload.method || 'PUT', ticket },
+      200,
+      request,
+      env,
+    )
+  } catch (error) {
+    console.error('[chat-files-worker] direct file prepare failed', error)
+    return jsonResponse(
+      { ok: false, error: publicWorkerFileErrorMessage(error) },
+      Number(error?.httpStatus || 500),
+      request,
+      env,
+    )
+  }
+}
+
+async function completeDirectChatFileUpload(request, env, ctx) {
+  try {
+    assertDirectUploadEnv(env)
+
+    const { actorId, actorDoc } = await getAuthorizedActor(request, env)
+    const gateDoc = await getFirestoreDocument(env, 'app_settings/app_gate')
+    ensureAppAvailableForActor(gateDoc, String(actorDoc.role || 'USER'))
+
+    const input = await request.json().catch(() => ({}))
+    const ticket = await verifyDirectUploadTicket(env, String(input.ticket || ''))
+    if (ticket.kind !== 'chat-file' || ticket.actorId !== actorId) {
+      const error = new Error('Ссылка загрузки не принадлежит текущему пользователю.')
+      error.httpStatus = 403
+      throw error
+    }
+
+    const resource = await getYandexResource(env, ticket.storageKey)
+    if (!resource || Number(resource.size || 0) !== Number(ticket.attachment?.size || 0)) {
+      const error = new Error('Файл загрузился не полностью. Повторите отправку.')
+      error.httpStatus = 409
+      throw error
+    }
+
+    ctx?.waitUntil(runEmergencyStorageCleanup(env).catch((error) => {
+      console.error('[chat-files-worker] emergency cleanup failed', error)
+    }))
+
+    return jsonResponse({ ok: true, attachment: ticket.attachment }, 200, request, env)
+  } catch (error) {
+    console.error('[chat-files-worker] direct file complete failed', error)
+    return jsonResponse(
+      { ok: false, error: publicWorkerFileErrorMessage(error) },
+      Number(error?.httpStatus || 500),
+      request,
+      env,
+    )
+  }
+}
+
+async function prepareDirectAvatarUpload(request, env) {
+  try {
+    assertDirectUploadEnv(env)
+
+    const { actorId, actorDoc } = await getAuthorizedActor(request, env)
+    const gateDoc = await getFirestoreDocument(env, 'app_settings/app_gate')
+    ensureAppAvailableForActor(gateDoc, String(actorDoc.role || 'USER'))
+
+    const input = await request.json().catch(() => ({}))
+    const originalName = String(input.name || 'avatar')
+    const fileSize = Number(input.size || 0)
+    const contentType = String(input.contentType || '').slice(0, 200)
+    if (!contentType.startsWith('image/')) {
+      return jsonResponse({ ok: false, error: 'Выберите изображение для аватарки.' }, 400, request, env)
+    }
+    if (fileSize <= 0) {
+      return jsonResponse({ ok: false, error: 'Нельзя загрузить пустую аватарку.' }, 400, request, env)
+    }
+    if (fileSize > AVATAR_FILE_MAX_SIZE_BYTES) {
+      return jsonResponse({ ok: false, error: 'Аватарка больше 5 МБ.' }, 413, request, env)
+    }
+
+    const now = Date.now()
+    const avatarId = crypto.randomUUID()
+    const cleanName = sanitizeFileName(originalName)
+    const avatarFileName = `${avatarId}-${cleanName}`
+    const storageKey = `${AVATAR_FILES_PREFIX}${actorId}/${avatarFileName}`
+    const avatar = {
+      id: avatarId,
+      name: cleanName,
+      contentType,
+      size: fileSize,
+      downloadPath: `/api/chat/avatar/${actorId}/${encodeURIComponent(avatarFileName)}`,
+      storageKey,
+      uploadedAtClient: now,
+    }
+    const upload = await createYandexUploadTarget(env, storageKey)
+    const ticket = await signDirectUploadTicket(env, {
+      kind: 'avatar',
+      actorId,
+      storageKey,
+      avatar,
+      expiresAtClient: now + DIRECT_UPLOAD_TICKET_TTL_MS,
+    })
+
+    return jsonResponse(
+      { ok: true, uploadUrl: upload.href, uploadMethod: upload.method || 'PUT', ticket },
+      200,
+      request,
+      env,
+    )
+  } catch (error) {
+    console.error('[chat-files-worker] direct avatar prepare failed', error)
+    return jsonResponse(
+      { ok: false, error: publicWorkerFileErrorMessage(error) },
+      Number(error?.httpStatus || 500),
+      request,
+      env,
+    )
+  }
+}
+
+async function completeDirectAvatarUpload(request, env) {
+  let nextStorageKey = ''
+
+  try {
+    assertDirectUploadEnv(env)
+
+    const { actorId, actorDoc } = await getAuthorizedActor(request, env)
+    const gateDoc = await getFirestoreDocument(env, 'app_settings/app_gate')
+    ensureAppAvailableForActor(gateDoc, String(actorDoc.role || 'USER'))
+
+    const input = await request.json().catch(() => ({}))
+    const ticket = await verifyDirectUploadTicket(env, String(input.ticket || ''))
+    if (ticket.kind !== 'avatar' || ticket.actorId !== actorId) {
+      const error = new Error('Ссылка загрузки не принадлежит текущему пользователю.')
+      error.httpStatus = 403
+      throw error
+    }
+
+    nextStorageKey = String(ticket.storageKey || '')
+    const resource = await getYandexResource(env, nextStorageKey)
+    if (!resource || Number(resource.size || 0) !== Number(ticket.avatar?.size || 0)) {
+      const error = new Error('Аватарка загрузилась не полностью. Повторите попытку.')
+      error.httpStatus = 409
+      throw error
+    }
+
+    try {
+      await patchFirestoreDocument(env, `users/${actorId}`, { avatar: ticket.avatar }, ['avatar'])
+    } catch (error) {
+      await deleteStoredObject(env, nextStorageKey).catch(() => {})
+      throw error
+    }
+
+    await deleteStoredAvatar(env, actorDoc.avatar)
+    return jsonResponse({ ok: true, avatar: ticket.avatar }, 200, request, env)
+  } catch (error) {
+    console.error('[chat-files-worker] direct avatar complete failed', error)
+    return jsonResponse(
+      { ok: false, error: publicWorkerFileErrorMessage(error) },
+      Number(error?.httpStatus || 500),
+      request,
+      env,
+    )
+  }
+}
+
+async function createDirectDownloadUrl(request, env) {
+  try {
+    assertDirectUploadEnv(env)
+
+    const { actorDoc } = await getAuthorizedActor(request, env)
+    const gateDoc = await getFirestoreDocument(env, 'app_settings/app_gate')
+    ensureAppAvailableForActor(gateDoc, String(actorDoc.role || 'USER'))
+
+    const input = await request.json().catch(() => ({}))
+    const downloadPath = String(input.downloadPath || '')
+    let storageKey = ''
+    if (downloadPath.startsWith('/api/chat/files/')) {
+      const fileName = decodeURIComponent(downloadPath.replace('/api/chat/files/', '')).trim()
+      if (!isSafeChatStorageFileName(fileName)) {
+        return jsonResponse({ ok: false, error: 'Файл не найден.' }, 404, request, env)
+      }
+      storageKey = `${CHAT_FILES_PREFIX}${fileName}`
+      const metadata = metadataFromStorageKey(storageKey)
+      if (metadata.expiresAtClient > 0 && metadata.expiresAtClient < Date.now()) {
+        return jsonResponse({ ok: false, error: 'Срок хранения файла истёк.' }, 410, request, env)
+      }
+    } else if (downloadPath.startsWith('/api/chat/avatar/')) {
+      const avatarPath = decodeURIComponent(downloadPath.replace('/api/chat/avatar/', '')).trim()
+      if (!avatarPath || avatarPath.includes('..')) {
+        return jsonResponse({ ok: false, error: 'Аватарка не найдена.' }, 404, request, env)
+      }
+      storageKey = `${AVATAR_FILES_PREFIX}${avatarPath}`
+    } else {
+      return jsonResponse({ ok: false, error: 'Файл не найден.' }, 404, request, env)
+    }
+
+    const [resource, download] = await Promise.all([
+      getYandexResource(env, storageKey),
+      createYandexDownloadTarget(env, storageKey),
+    ])
+    if (!resource || !download?.href) {
+      return jsonResponse({ ok: false, error: 'Файл не найден или уже удалён.' }, 404, request, env)
+    }
+
+    return jsonResponse(
+      {
+        ok: true,
+        downloadUrl: download.href,
+        name: String(resource.name || 'file'),
+        contentType: String(resource.mime_type || 'application/octet-stream'),
+      },
+      200,
+      request,
+      env,
+    )
+  } catch (error) {
+    console.error('[chat-files-worker] direct download url failed', error)
+    return jsonResponse(
+      { ok: false, error: publicWorkerFileErrorMessage(error) },
+      Number(error?.httpStatus || 500),
+      request,
+      env,
+    )
+  }
 }
 
 async function uploadChatFile(request, env, ctx) {
@@ -544,11 +834,7 @@ async function deleteStoredObject(env, storageKey) {
 }
 
 async function putYandexObject(env, storageKey, body) {
-  await ensureYandexDirectory(env, parentStorageDirectory(storageKey))
-  const payload = await yandexRequest(env, 'GET', '/resources/upload', {
-    path: yandexDiskPath(env, storageKey),
-    overwrite: 'true',
-  })
+  const payload = await createYandexUploadTarget(env, storageKey)
 
   if (!payload?.href) {
     throw new Error('Яндекс.Диск не выдал ссылку для загрузки файла.')
@@ -564,16 +850,44 @@ async function putYandexObject(env, storageKey, body) {
   }
 }
 
-async function getYandexObject(env, storageKey) {
-  const resource = await yandexRequest(env, 'GET', '/resources', {
+async function createYandexUploadTarget(env, storageKey) {
+  await ensureYandexDirectory(env, parentStorageDirectory(storageKey))
+  const payload = await yandexRequest(env, 'GET', '/resources/upload', {
     path: yandexDiskPath(env, storageKey),
-    fields: 'name,size,mime_type',
-  })
-  const payload = await yandexRequest(env, 'GET', '/resources/download', {
-    path: yandexDiskPath(env, storageKey),
+    overwrite: 'true',
   })
 
   if (!payload?.href) {
+    throw new Error('Яндекс.Диск не выдал ссылку для загрузки файла.')
+  }
+
+  return payload
+}
+
+async function getYandexResource(env, storageKey) {
+  return yandexRequest(env, 'GET', '/resources', {
+    path: yandexDiskPath(env, storageKey),
+    fields: 'name,size,mime_type,created,modified',
+  }).catch((error) => {
+    if (Number(error?.httpStatus || 0) === 404) return null
+    throw error
+  })
+}
+
+async function createYandexDownloadTarget(env, storageKey) {
+  return yandexRequest(env, 'GET', '/resources/download', {
+    path: yandexDiskPath(env, storageKey),
+  }).catch((error) => {
+    if (Number(error?.httpStatus || 0) === 404) return null
+    throw error
+  })
+}
+
+async function getYandexObject(env, storageKey) {
+  const resource = await getYandexResource(env, storageKey)
+  const payload = await createYandexDownloadTarget(env, storageKey)
+
+  if (!resource || !payload?.href) {
     return null
   }
 
@@ -705,6 +1019,66 @@ function assertRequiredEnv(env) {
     error.httpStatus = 503
     throw error
   }
+}
+
+function assertDirectUploadEnv(env) {
+  assertRequiredEnv(env)
+
+  const missing = []
+  if (storageProvider(env) !== 'yandex') missing.push('CHAT_FILES_STORAGE_PROVIDER=yandex')
+  if (!String(env.FILE_TICKET_SECRET || '').trim()) missing.push('FILE_TICKET_SECRET')
+  if (missing.length > 0) {
+    const error = new Error(`Прямая загрузка файлов не настроена: ${missing.join(', ')}`)
+    error.httpStatus = 503
+    throw error
+  }
+}
+
+async function signDirectUploadTicket(env, payload) {
+  const encodedPayload = base64UrlFromBytes(textEncode(JSON.stringify(payload)))
+  const key = await directUploadTicketKey(env)
+  const signature = await crypto.subtle.sign('HMAC', key, textEncode(encodedPayload))
+  return `${encodedPayload}.${base64UrlFromBytes(new Uint8Array(signature))}`
+}
+
+async function verifyDirectUploadTicket(env, value) {
+  const [encodedPayload, encodedSignature, ...extra] = String(value || '').split('.')
+  if (!encodedPayload || !encodedSignature || extra.length > 0) {
+    const error = new Error('Срок действия ссылки загрузки истёк. Повторите отправку.')
+    error.httpStatus = 401
+    throw error
+  }
+
+  const key = await directUploadTicketKey(env)
+  const verified = await crypto.subtle.verify(
+    'HMAC',
+    key,
+    base64UrlToBytes(encodedSignature),
+    textEncode(encodedPayload),
+  )
+  if (!verified) {
+    const error = new Error('Ссылка загрузки недействительна. Повторите отправку.')
+    error.httpStatus = 401
+    throw error
+  }
+
+  const payload = JSON.parse(textDecode(base64UrlToBytes(encodedPayload)))
+  if (Number(payload.expiresAtClient || 0) < Date.now()) {
+    const error = new Error('Срок действия ссылки загрузки истёк. Повторите отправку.')
+    error.httpStatus = 401
+    throw error
+  }
+  return payload
+}
+
+function directUploadTicketKey(env) {
+  return crypto.subtle.importKey(
+    'raw',
+    textEncode(String(env.FILE_TICKET_SECRET || '').trim()),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify'],
+  )
 }
 
 async function getAuthorizedActor(request, env) {

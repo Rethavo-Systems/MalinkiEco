@@ -10,12 +10,23 @@ type ResilientFetchOptions = {
 }
 
 const HEALTH_CHECK_TIMEOUT_MS = 7_000
+const HEALTH_CHECK_HEDGE_DELAY_MS = 600
 const selectedEndpoints = new Map<string, string>()
 
 let networkListenersInstalled = false
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/$/, '')
+}
+
+function buildEndpointUrl(baseUrl: string, path: string) {
+  if (baseUrl.includes('functions.yandexcloud.net/')) {
+    const url = new URL(baseUrl)
+    url.searchParams.set('path', path)
+    return url.toString()
+  }
+
+  return `${baseUrl}${path}`
 }
 
 function uniqueCandidates(candidates: string[]) {
@@ -58,7 +69,7 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
 
 async function probeEndpoint(baseUrl: string, healthPath: string) {
   const response = await fetchWithTimeout(
-    `${baseUrl}${healthPath}`,
+    buildEndpointUrl(baseUrl, healthPath),
     { method: 'GET', cache: 'no-store' },
     HEALTH_CHECK_TIMEOUT_MS,
   )
@@ -72,30 +83,54 @@ async function probeEndpoint(baseUrl: string, healthPath: string) {
 
 async function firstReachableEndpoint(candidates: string[], healthPath: string) {
   return new Promise<string>((resolve, reject) => {
-    let pending = candidates.length
+    let nextIndex = 0
+    let active = 0
     let settled = false
+    let hedgeTimer = 0
 
-    if (pending === 0) {
+    if (candidates.length === 0) {
       reject(new Error('API endpoints are not configured'))
       return
     }
 
-    for (const candidate of candidates) {
+    const launchNext = () => {
+      if (settled || nextIndex >= candidates.length) {
+        return
+      }
+
+      const candidate = candidates[nextIndex]
+      nextIndex += 1
+      active += 1
+
+      if (nextIndex < candidates.length) {
+        hedgeTimer = window.setTimeout(launchNext, HEALTH_CHECK_HEDGE_DELAY_MS)
+      }
+
       probeEndpoint(candidate, healthPath).then(
         (baseUrl) => {
           if (!settled) {
             settled = true
+            window.clearTimeout(hedgeTimer)
             resolve(baseUrl)
           }
         },
         () => {
-          pending -= 1
-          if (!settled && pending === 0) {
+          active -= 1
+          if (settled) {
+            return
+          }
+
+          if (nextIndex < candidates.length) {
+            window.clearTimeout(hedgeTimer)
+            launchNext()
+          } else if (active === 0) {
             reject(new Error('No API endpoint is reachable'))
           }
         },
       )
     }
+
+    launchNext()
   })
 }
 
@@ -128,7 +163,7 @@ export async function resilientApiFetch(
   const firstBaseUrl = await resolveApiEndpoint(config)
 
   try {
-    return await fetchWithTimeout(`${firstBaseUrl}${path}`, init, options.timeoutMs ?? 0)
+    return await fetchWithTimeout(buildEndpointUrl(firstBaseUrl, path), init, options.timeoutMs ?? 0)
   } catch (error) {
     invalidateApiEndpoint(config.cacheKey)
     if (!options.retryOnNetworkError) {
@@ -136,6 +171,6 @@ export async function resilientApiFetch(
     }
 
     const fallbackBaseUrl = await resolveApiEndpoint(config, firstBaseUrl)
-    return fetchWithTimeout(`${fallbackBaseUrl}${path}`, init, options.timeoutMs ?? 0)
+    return fetchWithTimeout(buildEndpointUrl(fallbackBaseUrl, path), init, options.timeoutMs ?? 0)
   }
 }

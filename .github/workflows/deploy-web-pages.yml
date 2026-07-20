@@ -39,6 +39,8 @@ jobs:
         working-directory: web
         env:
           VITE_APP_API_BASE_URL: ${{ vars.VITE_APP_API_BASE_URL }}
+          VITE_CHAT_FILES_API_BASE_URL: ${{ vars.VITE_CHAT_FILES_API_BASE_URL }}
+          VITE_RU_API_BASE_URL: https://functions.yandexcloud.net/d4e2q8bfsq6c6e0qj8qs
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
