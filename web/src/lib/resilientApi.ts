@@ -29,6 +29,22 @@ function buildEndpointUrl(baseUrl: string, path: string) {
   return `${baseUrl}${path}`
 }
 
+function buildEndpointRequestInit(baseUrl: string, init: RequestInit) {
+  if (!baseUrl.includes('functions.yandexcloud.net/')) {
+    return init
+  }
+
+  const headers = new Headers(init.headers)
+  const authorization = headers.get('Authorization')
+  if (authorization) {
+    // Yandex Cloud reserves Authorization for its own IAM authentication.
+    headers.delete('Authorization')
+    headers.set('X-Firebase-Authorization', authorization)
+  }
+
+  return { ...init, headers }
+}
+
 function uniqueCandidates(candidates: string[]) {
   return [...new Set(candidates.map(normalizeBaseUrl).filter(Boolean))]
 }
@@ -168,7 +184,11 @@ export async function resilientApiFetch(
   const firstBaseUrl = await resolveApiEndpoint(config)
 
   try {
-    const response = await fetchWithTimeout(buildEndpointUrl(firstBaseUrl, path), init, options.timeoutMs ?? 0)
+    const response = await fetchWithTimeout(
+      buildEndpointUrl(firstBaseUrl, path),
+      buildEndpointRequestInit(firstBaseUrl, init),
+      options.timeoutMs ?? 0,
+    )
     const contentType = String(response.headers.get('content-type') || '').toLowerCase()
 
     // Mobile operators can return an HTML error page without rejecting fetch.
@@ -185,6 +205,10 @@ export async function resilientApiFetch(
     }
 
     const fallbackBaseUrl = await resolveApiEndpoint(config, firstBaseUrl)
-    return fetchWithTimeout(buildEndpointUrl(fallbackBaseUrl, path), init, options.timeoutMs ?? 0)
+    return fetchWithTimeout(
+      buildEndpointUrl(fallbackBaseUrl, path),
+      buildEndpointRequestInit(fallbackBaseUrl, init),
+      options.timeoutMs ?? 0,
+    )
   }
 }

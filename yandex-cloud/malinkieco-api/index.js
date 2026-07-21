@@ -47,7 +47,10 @@ module.exports.handler = async function handler(event) {
 
   try {
     const headers = new Headers()
-    copyRequestHeader(event, headers, 'authorization')
+    copyRequestHeader(event, headers, 'x-firebase-authorization', 'authorization')
+    if (!headers.has('authorization')) {
+      copyRequestHeader(event, headers, 'authorization')
+    }
     copyRequestHeader(event, headers, 'content-type')
     copyRequestHeader(event, headers, 'origin')
     headers.set('X-Malinki-Proxy', 'yandex-cloud')
@@ -145,9 +148,9 @@ function requestHeader(event, name) {
   return found ? String(headers[found] || '') : ''
 }
 
-function copyRequestHeader(event, target, name) {
+function copyRequestHeader(event, target, name, targetName = name) {
   const value = requestHeader(event, name)
-  if (value) target.set(name, value)
+  if (value) target.set(targetName, value)
 }
 
 function allowedOrigins() {
@@ -167,7 +170,7 @@ function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': selectedOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Firebase-Authorization',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   }

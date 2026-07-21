@@ -24,3 +24,7 @@ Environment variables are optional because safe upstream defaults are included:
 The public invocation URL is configured as `VITE_RU_API_BASE_URL` in the web
 deployment workflow. Yandex Cloud Functions receive the requested API path in
 the `path` query parameter because their public URL does not accept path suffixes.
+
+Firebase credentials use the `X-Firebase-Authorization` request header. The
+function restores the standard `Authorization` header only when calling the
+upstream Worker because Yandex Cloud reserves it for IAM authentication.
