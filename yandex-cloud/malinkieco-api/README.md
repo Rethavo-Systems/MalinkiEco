@@ -7,6 +7,12 @@ on restricted mobile networks. Large chat files do not pass through the function
 the chat API returns a temporary Yandex Disk URL and the browser transfers them
 directly, avoiding function traffic and payload limits.
 
+Chat previews and downloads first try the temporary storage URL. If the browser
+cannot read it (for example, due to CORS or a stalled connection), the web app
+uses the existing authenticated `/api/chat/files/*` GET route. Files up to 3 MiB
+can use this function as a fallback; larger or unknown-size files use the
+streaming Worker endpoints to avoid the function's base64 response payload limit.
+
 Runtime settings:
 
 - Runtime: Node.js 22
