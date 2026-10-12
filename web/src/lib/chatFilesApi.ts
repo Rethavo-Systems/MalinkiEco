@@ -1,6 +1,7 @@
 import type { ChatAttachment, UserAvatar } from '../types'
 import { auth } from './firebase'
 import { resilientApiFetch } from './resilientApi'
+import { downloadWithFallback, fileDownloadCandidates } from './chatFileDownload'
 
 const CHAT_FILES_API_ENDPOINTS = [
   String(import.meta.env.VITE_RU_API_BASE_URL ?? ''),
@@ -153,22 +154,38 @@ export async function uploadChatFile(file: File): Promise<ChatAttachment> {
   }
 }
 
-async function downloadProtectedFile(downloadPath: string): Promise<Blob> {
+async function downloadProtectedFile(downloadPath: string, size: number): Promise<Blob> {
   try {
-    const payload = await postAuthorizedJson<DirectDownloadResponse>(
-      '/api/chat/download-url',
-      { downloadPath },
-      30_000,
+    return await downloadWithFallback(
+      async () => {
+        const payload = await postAuthorizedJson<DirectDownloadResponse>(
+          '/api/chat/download-url',
+          { downloadPath },
+          30_000,
+        )
+        if (!payload.ok || !payload.downloadUrl) {
+          throw new Error(payload.error || 'Хранилище не выдало ссылку для скачивания.')
+        }
+        return payload.downloadUrl
+      },
+      async () => {
+        const token = await requireFirebaseToken()
+        return resilientApiFetch(
+          {
+            ...CHAT_FILES_API_CONFIG,
+            cacheKey: 'chat-file-downloads',
+            candidates: fileDownloadCandidates(CHAT_FILES_API_ENDPOINTS, size),
+          },
+          downloadPath,
+          {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
+            cache: 'no-store',
+          },
+          { retryOnNetworkError: true, timeoutMs: 45_000 },
+        )
+      },
     )
-    if (!payload.ok || !payload.downloadUrl) {
-      throw new Error(payload.error || 'Хранилище не выдало ссылку для скачивания.')
-    }
-
-    const response = await fetch(payload.downloadUrl, { cache: 'no-store' })
-    if (!response.ok) {
-      throw new Error('Хранилище временно не отдало файл.')
-    }
-    return response.blob()
   } catch (error) {
     if (error instanceof Error && error.message) throw error
     throw new Error('Не удалось скачать файл через текущую сеть. Попробуйте ещё раз.')
@@ -252,7 +269,7 @@ export async function downloadUserAvatar(downloadPath: string): Promise<Blob> {
 }
 
 export async function downloadChatAttachment(attachment: ChatAttachment): Promise<Blob> {
-  return downloadProtectedFile(attachment.downloadPath)
+  return downloadProtectedFile(attachment.downloadPath, attachment.size)
 }
 
 export async function deleteChatAttachment(attachment: ChatAttachment): Promise<void> {
