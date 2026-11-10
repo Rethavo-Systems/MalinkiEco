@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 // No network client. Optimistic version checks exercise retries in the real appApi callbacks.
 export function createStore(seed = {}) {
-  return { values: new Map(Object.entries(structuredClone(seed))), versions: new Map(), retries: 0, failPath: '' }
+  return { values: new Map(Object.entries(structuredClone(seed))), versions: new Map(), retries: 0, transactionCalls: 0, failPath: '' }
 }
 let nextId = 0
 export function collection(db, path) { return { db, path } }
@@ -33,6 +33,7 @@ function commit(db, writes) {
   }
 }
 export async function runTransaction(db, callback) {
+  db.transactionCalls++
   for (let attempt = 0; attempt < 30; attempt++) {
     const reads = new Map(), writes = []
     const result = await callback({

@@ -64,7 +64,8 @@ test('reports expired or missing files from the protected API', async () => {
 test('keeps large and unknown-size files off the function proxy', () => {
   const endpoints = ['https://functions.yandexcloud.net/function', 'https://chat-files.rethavo.ru']
   assert.deepEqual(fileDownloadCandidates(endpoints, 2048), endpoints)
-  for (const size of [25 * 1024 * 1024, 0, NaN]) {
+  for (const size of [2 * 1024 * 1024 + 1, 2_789_673, 3 * 1024 * 1024, 25 * 1024 * 1024, 0, NaN]) {
     assert.deepEqual(fileDownloadCandidates(endpoints, size), [endpoints[1]])
   }
+  assert.deepEqual(fileDownloadCandidates(endpoints, 2 * 1024 * 1024), endpoints)
 })

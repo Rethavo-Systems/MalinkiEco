@@ -3,6 +3,7 @@ import { isChargeClosed, validateChargeDeadline } from '../lib/chargeDeadline'
 import { parsePaymentRubles } from '../lib/paymentSelection'
 import { useMemo, useState, type ChangeEvent } from 'react'
 import type { CommunityEvent, EventType, RemoteUser } from '../types'
+import './EventsSection.css'
 
 type EventTemplate = {
   name: string

@@ -89,7 +89,8 @@ import {
   paymentDetails,
   roleLabel,
 } from './utils'
-import { AppNavigation } from './components/AppNavigation'
+import { AppNavigation, GateIcon } from './components/AppNavigation'
+import { PageNotice } from './components/PageNotice'
 import './App.css'
 import './AppModern.css'
 
@@ -274,7 +275,7 @@ function App() {
   const [maintenanceSignIn, setMaintenanceSignIn] = useState(false)
   const appGate = useAppGate()
   const { authUser, authLoading } = useFirebaseAuthState()
-  const { pageNotice, noticeKind, showNotice, clearNotice } = usePageNotice()
+  const { pageNotice, noticeKind, noticeId, showNotice, clearNotice } = usePageNotice()
   const {
     authMode,
     authForm,
@@ -1689,11 +1690,7 @@ function App() {
               title="Открыть ворота"
             >
               <span className="gate-open-button__main">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <rect x="3" y="3" width="18" height="4" rx="1" />
-                  <path d="M5 7v14h14V7M3 21h18" />
-                  <path d="M5 10h14M5 13h14M5 16h14M10 19h4" />
-                </svg>
+                <GateIcon />
                 <span>Открыть ворота</span>
               </span>
               <span className="gate-open-button__hint">{gateButtonHint}</span>
@@ -1726,15 +1723,7 @@ function App() {
 
       <AppNavigation activeTab={activeTab} tabs={visibleTabs} badges={tabBadgeCounts} balance={profile.balance} onSelect={setActiveTab} />
 
-      {pageNotice && (
-        <div className={`notice-bar notice-bar--${noticeKind}`} role={noticeKind === 'error' ? 'alert' : 'status'}>
-          <span className="notice-symbol" aria-hidden="true">{noticeKind === 'error' ? '!' : noticeKind === 'success' ? '✓' : 'i'}</span>
-          <span>{pageNotice}</span>
-          <button className="notice-close" type="button" onClick={clearNotice}>
-            Закрыть
-          </button>
-        </div>
-      )}
+      {pageNotice && <PageNotice key={noticeId} message={pageNotice} kind={noticeKind} onClose={clearNotice} />}
 
       <AccountSettingsPanel
         profile={profile}

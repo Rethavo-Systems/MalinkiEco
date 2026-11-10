@@ -1,11 +1,13 @@
 import { ChatReaders } from './ChatReaders'
 import { canReadVisibleContent } from '../lib/readVisibility'
 import { selectedOwnChatMessage, type ChatReadersSelection } from '../lib/chatReadReceipts'
+import { ChatLongPress } from '../lib/chatLongPress'
 import { createPortal } from 'react-dom'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CHAT_FILE_MAX_COUNT,
   downloadChatAttachment,
+  getChatAttachmentPreviewUrl,
   validateChatFile,
 } from '../lib/chatFilesApi'
 import { useAvatarObjectUrl } from '../hooks/useAvatarObjectUrl'
@@ -82,6 +84,7 @@ type ResidentChatProps = {
   activationKey?: number
   readingBlocked?: boolean
   loadAttachment?: (attachment: ResidentChatAttachment) => Promise<Blob>
+  loadPreviewUrl?: (attachment: ResidentChatAttachment) => Promise<string>
 }
 
 type ChatMenuState = {
@@ -126,6 +129,7 @@ export function ResidentChat({
   activationKey = 0,
   readingBlocked = false,
   loadAttachment = downloadChatAttachment,
+  loadPreviewUrl = getChatAttachmentPreviewUrl,
 }: ResidentChatProps) {
   const [readersSelection, setReadersSelection] = useState<ChatReadersSelection | null>(null)
   const [actionError, setActionError] = useState('')
@@ -155,8 +159,7 @@ export function ResidentChat({
   const previousLastMessageIdRef = useRef('')
   const stickToLatestRef = useRef(true)
   const settleScrollTimersRef = useRef<number[]>([])
-  const longPressTimerRef = useRef<number | null>(null)
-  const longPressTriggeredRef = useRef(false)
+  const longPressRef = useRef(new ChatLongPress())
 
   const readersMessage = selectedOwnChatMessage(messages, profile.id, readersSelection)
   const ownMenuMessage = menu ? selectedOwnChatMessage(messages, profile.id, { messageId: menu.message.id, viewerId: profile.id }) : null
@@ -303,8 +306,11 @@ export function ResidentChat({
   useEffect(() => {
     if (!menu) return
 
-    const frame = requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.resident-chat__menu button:not(:disabled)')?.focus())
-    const closeMenu = () => setMenu(null)
+    const frame = requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.resident-chat__menu button:not(:disabled)')?.focus({ preventScroll: true }))
+    const closeMenu = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest('.resident-chat__menu')) return
+      setMenu(null)
+    }
     const closeByEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         menuReturnFocus.current?.focus()
@@ -312,13 +318,13 @@ export function ResidentChat({
       }
     }
 
-    window.addEventListener('click', closeMenu)
+    window.addEventListener('pointerdown', closeMenu)
     window.addEventListener('contextmenu', closeMenu)
     window.addEventListener('keydown', closeByEscape)
 
     return () => {
       cancelAnimationFrame(frame)
-      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('pointerdown', closeMenu)
       window.removeEventListener('contextmenu', closeMenu)
       window.removeEventListener('keydown', closeByEscape)
     }
@@ -326,7 +332,7 @@ export function ResidentChat({
 
   useEffect(
     () => () => {
-      clearLongPressTimer()
+      longPressRef.current.cancel()
       clearSettleScrollTimers()
     },
     [],
@@ -412,34 +418,20 @@ export function ResidentChat({
   }
 
   const openTouchMenu = (element: HTMLElement, message: ResidentChatMessage) => {
+    menuReturnFocus.current = element
     selectedMenuText.current = ''
     openMenuAt(message, element.getBoundingClientRect(), message.senderId === profile.id)
   }
 
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current !== null) {
-      window.clearTimeout(longPressTimerRef.current)
-      longPressTimerRef.current = null
-    }
-  }
-
   const startLongPress = (event: React.TouchEvent<HTMLElement>, message: ResidentChatMessage) => {
-    if (event.touches.length !== 1) return
-
-    clearLongPressTimer()
-    longPressTriggeredRef.current = false
+    if (event.touches.length !== 1) { longPressRef.current.cancel(); return }
     const element = event.currentTarget
-
-    longPressTimerRef.current = window.setTimeout(() => {
-      longPressTriggeredRef.current = true
-      openTouchMenu(element, message)
-    }, 420)
+    const touch = event.touches[0]
+    longPressRef.current.start({ x: touch.clientX, y: touch.clientY }, () => openTouchMenu(element, message))
   }
 
   const finishLongPress = (event: React.TouchEvent<HTMLElement>) => {
-    const wasTriggered = longPressTriggeredRef.current
-    clearLongPressTimer()
-    longPressTriggeredRef.current = false
+    const wasTriggered = longPressRef.current.finish()
 
     if (wasTriggered) {
       event.preventDefault()
@@ -447,9 +439,10 @@ export function ResidentChat({
     }
   }
 
-  const cancelLongPress = () => {
-    clearLongPressTimer()
-    longPressTriggeredRef.current = false
+  const moveLongPress = (event: React.TouchEvent<HTMLElement>) => {
+    if (event.touches.length !== 1) { longPressRef.current.cancel(); return }
+    const touch = event.touches[0]
+    longPressRef.current.move({ x: touch.clientX, y: touch.clientY })
   }
 
   const formatUserPlots = (user: ResidentChatUser) => {
@@ -690,7 +683,10 @@ export function ResidentChat({
                   onTouchStart={(event) => startLongPress(event, message)}
                   onTouchEnd={finishLongPress}
                   onTouchCancel={finishLongPress}
-                  onTouchMove={cancelLongPress}
+                  onTouchMove={moveLongPress}
+                  onClickCapture={event => {
+                    if (longPressRef.current.consumeClick()) { event.preventDefault(); event.stopPropagation() }
+                  }}
                 >
                 <div className="resident-chat__meta">
                   <span className="resident-chat__author">
@@ -730,7 +726,7 @@ export function ResidentChat({
                     )}
 
                     {message.attachments.length > 0 && (
-                      <ChatAttachments attachments={message.attachments} loadAttachment={loadAttachment} />
+                      <ChatAttachments attachments={message.attachments} loadAttachment={loadAttachment} loadPreviewUrl={loadPreviewUrl} />
                     )}
 
 

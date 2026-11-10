@@ -1,6 +1,7 @@
-// The function proxy returns binary responses as base64 in a JSON envelope.
-// Keep larger files on the streaming Worker endpoints to avoid its payload limit.
-const FUNCTION_DOWNLOAD_MAX_BYTES = 3 * 1024 * 1024
+// The function's 3.5 MB JSON response limit includes Base64 (4/3 of the file),
+// headers and the envelope. 2 MiB leaves room for that overhead, unlike 3 MiB.
+// Larger and unknown-size files must use a streaming Worker endpoint.
+const FUNCTION_DOWNLOAD_MAX_BYTES = 2 * 1024 * 1024
 
 export function fileDownloadCandidates(candidates: string[], size: number) {
   return candidates.filter((baseUrl) => {

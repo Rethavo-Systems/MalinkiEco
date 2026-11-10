@@ -20,6 +20,14 @@ type Props = {
   onSelect: (tab: TabKey) => void
 }
 
+export function GateIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 21V4h16v17M2 4h20M2 21h5M17 21h5" />
+    <path d="M5 7h14M5 10h14M5 13h14" />
+    <path d="M12 21v-5m-3 3 3-3 3 3" />
+  </svg>
+}
+
 export function AppNavigation({ activeTab, tabs, badges, balance, onSelect }: Props) {
   const drawer = useRef<HTMLDialogElement>(null)
   const indicator = balanceIndicator(balance)

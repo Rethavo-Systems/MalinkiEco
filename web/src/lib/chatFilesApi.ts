@@ -157,17 +157,7 @@ export async function uploadChatFile(file: File): Promise<ChatAttachment> {
 async function downloadProtectedFile(downloadPath: string, size: number): Promise<Blob> {
   try {
     return await downloadWithFallback(
-      async () => {
-        const payload = await postAuthorizedJson<DirectDownloadResponse>(
-          '/api/chat/download-url',
-          { downloadPath },
-          30_000,
-        )
-        if (!payload.ok || !payload.downloadUrl) {
-          throw new Error(payload.error || 'Хранилище не выдало ссылку для скачивания.')
-        }
-        return payload.downloadUrl
-      },
+      () => getProtectedDownloadUrl(downloadPath),
       async () => {
         const token = await requireFirebaseToken()
         return resilientApiFetch(
@@ -182,7 +172,9 @@ async function downloadProtectedFile(downloadPath: string, size: number): Promis
             headers: { Authorization: `Bearer ${token}` },
             cache: 'no-store',
           },
-          { retryOnNetworkError: true, timeoutMs: 45_000 },
+          // Only this read-only GET may move to a streaming endpoint when the
+          // function's response envelope is too large or its proxy times out.
+          { retryOnNetworkError: true, retryOnStatuses: [413, 502, 504], timeoutMs: 45_000 },
         )
       },
     )
@@ -190,6 +182,30 @@ async function downloadProtectedFile(downloadPath: string, size: number): Promis
     if (error instanceof Error && error.message) throw error
     throw new Error('Не удалось скачать файл через текущую сеть. Попробуйте ещё раз.')
   }
+}
+
+async function getProtectedDownloadUrl(downloadPath: string): Promise<string> {
+  const payload = await postAuthorizedJson<DirectDownloadResponse>(
+    '/api/chat/download-url',
+    { downloadPath },
+    30_000,
+  )
+  if (!payload.ok || !payload.downloadUrl) {
+    throw new Error(payload.error || 'Хранилище не выдало ссылку для скачивания.')
+  }
+  try {
+    if (new URL(payload.downloadUrl).protocol !== 'https:') throw new Error('HTTPS required')
+  } catch {
+    // Never include a signed URL in an error message or a log.
+    throw new Error('Хранилище выдало некорректную ссылку. Повторите загрузку.')
+  }
+  return payload.downloadUrl
+}
+
+// A native <img> can display this short-lived signed URL without fetch CORS.
+// Keep it in component memory only; file access is authorized before issuance.
+export async function getChatAttachmentPreviewUrl(attachment: ChatAttachment): Promise<string> {
+  return getProtectedDownloadUrl(attachment.downloadPath)
 }
 
 export async function uploadUserAvatar(file: File): Promise<UserAvatar> {

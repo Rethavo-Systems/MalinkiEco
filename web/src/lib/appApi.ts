@@ -1,4 +1,5 @@
 import { isChargeClosed, validateChargeDeadline } from './chargeDeadline'
+import { createChatReadPersistence } from './chatReadPersistence'
 import {
   addDoc,
   collection,
@@ -622,16 +623,23 @@ export async function deleteUserRecord(db: Firestore, actor: RemoteUser, targetU
     formatPlots(targetUser),
   )
 }
-export async function markChatRead(db: Firestore, userId: string, latestSeen: number, currentLastReadAt: number) {
-  if (latestSeen <= 0 || latestSeen <= currentLastReadAt) return
-  const reference = doc(db, 'users', userId)
-  await runTransaction(db, async transaction => {
-    const snapshot = await transaction.get(reference)
-    if (snapshot.exists() && latestSeen > Number(snapshot.data().lastChatReadAt ?? 0)) {
-      transaction.update(reference, { lastChatReadAt: latestSeen })
-    }
-  })
-}
+const isChatReadSessionCurrent = (_db: Firestore, userId: string) => auth?.currentUser?.uid === userId
+export const markChatRead = createChatReadPersistence<Firestore>({
+  isCurrentSession: isChatReadSessionCurrent,
+  persist: async (db, userId, latestSeen) => {
+    const reference = doc(db, 'users', userId)
+    return runTransaction(db, async transaction => {
+      if (!isChatReadSessionCurrent(db, userId)) throw new Error('Аккаунт изменился.')
+      const snapshot = await transaction.get(reference)
+      if (!isChatReadSessionCurrent(db, userId)) throw new Error('Аккаунт изменился.')
+      if (!snapshot.exists()) throw new Error('Профиль не найден.')
+      const value = Number(snapshot.data().lastChatReadAt ?? 0)
+      const savedCursor = Number.isFinite(value) && value > 0 ? value : 0
+      if (latestSeen > savedCursor) transaction.update(reference, { lastChatReadAt: latestSeen })
+      return Math.max(latestSeen, savedCursor)
+    }, { maxAttempts: 3 })
+  },
+})
 
 export async function sendChatMessage(
   db: Firestore,
