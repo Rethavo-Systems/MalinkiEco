@@ -3,7 +3,7 @@ import type { RemoteUser, TabKey } from '../types'
 
 export const WEB_PUSH_SUBSCRIPTIONS_COLLECTION = 'web_push_subscriptions'
 export const WEB_PUSH_PUBLIC_KEY =
-  import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY ??
+  import.meta.env?.VITE_WEB_PUSH_PUBLIC_KEY ??
   'BFGwSO5v21t0C9G9_ho1liQlXFwhJdXSks5cIzlXUemeieeBDIhcxVNi-Bab3v5jYlqiKpcL2PsdUzjbjGakuTE'
 
 const WEB_PUSH_SERVICE_WORKER_URL = '/sw.js'
@@ -15,6 +15,8 @@ export type WebPushSupportState =
   | 'blocked'
   | 'ready'
   | 'enabled'
+  | 'error'
+  | 'checking'
 
 let serviceWorkerRegistrationPromise: Promise<ServiceWorkerRegistration> | null = null
 
@@ -56,10 +58,6 @@ export function resolveWebPushSupportState(): WebPushSupportState {
     return 'install-required'
   }
 
-  if (isAndroidMobileDevice() && !isStandaloneDisplayMode() && !isYandexBrowser()) {
-    return 'install-required'
-  }
-
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
     return 'unsupported'
   }
@@ -86,6 +84,13 @@ export async function ensureWebPushServiceWorker(): Promise<ServiceWorkerRegistr
     serviceWorkerRegistrationPromise = navigator.serviceWorker
       .register(WEB_PUSH_SERVICE_WORKER_URL, {
         scope: WEB_PUSH_SCOPE,
+      })
+      .then(registration => {
+        if (registration.active) return registration
+        return new Promise<ServiceWorkerRegistration>((resolve, reject) => {
+          const timer = window.setTimeout(() => reject(new Error('Не удалось запустить уведомления. Повторите подключение.')), 15000)
+          navigator.serviceWorker.ready.then(ready => { clearTimeout(timer); resolve(ready) }, error => { clearTimeout(timer); reject(error) })
+        })
       })
       .catch((error) => {
         serviceWorkerRegistrationPromise = null
@@ -143,6 +148,7 @@ export async function saveWebPushSubscription(
   subscription: PushSubscription,
 ): Promise<string> {
   const payload = subscription.toJSON()
+  if (!payload.keys?.p256dh || !payload.keys?.auth) throw new Error('Браузер вернул неполную подписку. Повторите подключение.')
   const documentId = await createSubscriptionDocumentId(subscription)
   const timestamp = Date.now()
 
@@ -175,10 +181,16 @@ export async function removeStoredWebPushSubscription(
   await deleteDoc(doc(firestore, WEB_PUSH_SUBSCRIPTIONS_COLLECTION, documentId))
 }
 
-export async function disableStoredWebPushSubscription(firestore: Firestore): Promise<void> {
+export async function disableStoredWebPushSubscription(firestore: Firestore): Promise<boolean> {
   const subscription = await getCurrentPushSubscription()
-  await removeStoredWebPushSubscription(firestore, subscription)
-  await subscription?.unsubscribe()
+  if (!subscription) return true
+  // Either operation stops delivery. Attempt both even when the server or browser fails.
+  const results = await Promise.allSettled([
+    removeStoredWebPushSubscription(firestore, subscription),
+    subscription.unsubscribe(),
+  ])
+  if (results.every(result => result.status === 'rejected')) throw new Error('Не удалось отключить уведомления. Проверьте интернет и повторите попытку.')
+  return results.every(result => result.status === 'fulfilled')
 }
 
 export function tabForNotificationDestination(destination: string): TabKey {

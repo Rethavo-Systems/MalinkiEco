@@ -1,0 +1,113 @@
+/* Scoped to payment requisites: other detail cards keep their existing layout. */
+html[data-theme] .shell--modern .payments-section .payment-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  align-items: stretch;
+  gap: 12px;
+}
+html[data-theme] .shell--modern .payments-section .payment-detail-card {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  align-items: start;
+  justify-content: stretch;
+  min-width: 0;
+  min-height: 150px;
+  padding: 18px;
+  gap: 16px;
+  box-sizing: border-box;
+}
+html[data-theme] .shell--modern .payments-section .payment-detail-card .detail-card__text {
+  display: grid;
+  grid-template-rows: 20px auto;
+  align-content: start;
+  min-width: 0;
+  gap: 8px;
+}
+html[data-theme] .shell--modern .payments-section .payment-detail-card .detail-card__text > span {
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 400;
+}
+html[data-theme] .shell--modern .payments-section .payment-detail-card .detail-card__text > strong {
+  display: block;
+  min-width: 0;
+  color: var(--ui-text);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+  font-variant-numeric: lining-nums tabular-nums;
+  overflow-wrap: anywhere;
+}
+html[data-theme] .shell--modern .payments-section .payment-detail-card .copy-button {
+  align-self: end;
+  justify-self: start;
+  min-width: 120px;
+  width: auto;
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font: 500 12px/18px "Segoe UI", sans-serif;
+  text-align: center;
+}
+
+html[data-theme] .shell--modern .payments-section .payment-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+html[data-theme] .shell--modern .payments-section .payment-config-grid > label {
+  display: grid;
+  grid-template-rows: 20px 44px;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+}
+html[data-theme] .shell--modern .payments-section .payment-config-grid > label > span {
+  color: var(--ui-muted);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+html[data-theme] .shell--modern .payments-section .payment-config-grid > label > input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 9px;
+  font: 400 14px/22px "Segoe UI", sans-serif;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+html[data-theme] .shell--modern .payments-section .payment-config-grid > .payment-form-grid__wide {
+  grid-column: 1 / -1;
+}
+html[data-theme] .shell--modern .payments-section .payment-config-grid > button.payment-form-grid__wide {
+  justify-self: start;
+  width: auto;
+  min-width: 180px;
+  max-width: 100%;
+  margin-top: 2px;
+}
+html[data-theme] .shell--modern .payments-section .payment-config-card .poll-create-card__header > div {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  html[data-theme] .shell--modern .payments-section .payment-details-grid,
+  html[data-theme] .shell--modern .payments-section .payment-config-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: auto;
+  }
+  html[data-theme] .shell--modern .payments-section .payment-detail-card {
+    min-height: 0;
+    padding: 16px;
+    gap: 14px;
+  }
+}

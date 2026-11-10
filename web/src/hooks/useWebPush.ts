@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { db } from '../lib/firebase'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { auth, db } from '../lib/firebase'
 import {
   disableStoredWebPushSubscription,
   getCurrentPushSubscription,
@@ -7,7 +7,6 @@ import {
   removeStoredWebPushSubscription,
   resolveWebPushSupportState,
   saveWebPushSubscription,
-  shouldAutoEnableWebPush,
   subscribeToWebPush,
   type WebPushSupportState,
 } from '../lib/webPush'
@@ -22,15 +21,15 @@ type WebPushPresentation = {
   actionLabel: string | null
 }
 
-const AUTO_PROMPT_SESSION_KEY = 'malinkieco-web-push-autoprompted'
-
 export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallback) {
   const profileId = profile?.id ?? null
-  const [status, setStatus] = useState<WebPushSupportState>('unsupported')
+  const [status, setStatus] = useState<WebPushSupportState>('checking')
   const [busy, setBusy] = useState(false)
+  const operation = useRef(0)
 
   const syncCurrentSubscription = useCallback(
     async (silent = true) => {
+      const version = ++operation.current
       if (!db || !profileId) {
         setStatus('unsupported')
         return
@@ -43,15 +42,19 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
       }
 
       try {
+        setStatus('checking')
         const subscription = await getCurrentPushSubscription()
+        if (auth?.currentUser?.uid !== profileId || version !== operation.current) return
         if (subscription) {
           await saveWebPushSubscription(db, { id: profileId }, subscription)
+          if (auth?.currentUser?.uid !== profileId || version !== operation.current) return
           setStatus('enabled')
           return
         }
         setStatus('ready')
       } catch (error) {
-        setStatus('ready')
+        if (auth?.currentUser?.uid !== profileId || version !== operation.current) return
+        setStatus('error')
         if (!silent) {
           showNotice(humanizeError(error))
         }
@@ -71,7 +74,7 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
 
       const supportState = resolveWebPushSupportState()
       if (cancelled) return
-      setStatus(supportState)
+      setStatus(supportState === 'enabled' || supportState === 'ready' ? 'checking' : supportState)
 
       if (supportState === 'enabled' || supportState === 'ready') {
         await syncCurrentSubscription(true)
@@ -82,6 +85,7 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
 
     return () => {
       cancelled = true
+      operation.current++
     }
   }, [profileId, syncCurrentSubscription])
 
@@ -112,6 +116,7 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
       }
 
       setBusy(true)
+      const version = ++operation.current
       try {
         const permission =
           Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
@@ -129,7 +134,9 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
         }
 
         const subscription = await subscribeToWebPush()
+        if (auth?.currentUser?.uid !== profileId || version !== operation.current) return
         await saveWebPushSubscription(db, { id: profileId }, subscription)
+        if (auth?.currentUser?.uid !== profileId || version !== operation.current) return
         setStatus('enabled')
         if (!silent) {
           showNotice(
@@ -137,7 +144,8 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
           )
         }
       } catch (error) {
-        setStatus(resolveWebPushSupportState())
+        if (auth?.currentUser?.uid !== profileId || version !== operation.current) return
+        setStatus('error')
         if (!silent) {
           showNotice(humanizeError(error))
         }
@@ -150,31 +158,35 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
 
   const disable = useCallback(async () => {
     if (!db) return
+    const version = ++operation.current
     setBusy(true)
     try {
-      await disableStoredWebPushSubscription(db)
+      const fullyCleaned = await disableStoredWebPushSubscription(db)
+      if (auth?.currentUser?.uid !== profileId || version !== operation.current) return
       setStatus('ready')
-      showNotice('Push-уведомления для веб-версии отключены.')
+      showNotice(fullyCleaned ? 'Push-уведомления для веб-версии отключены.' : 'Доставка уведомлений остановлена. Очистку подписки не удалось завершить; при следующем подключении она будет проверена заново.')
     } catch (error) {
       showNotice(humanizeError(error))
     } finally {
       setBusy(false)
     }
-  }, [showNotice])
+  }, [profileId, showNotice])
 
   const unbindBeforeLogout = useCallback(async () => {
     if (!db) return
+    operation.current++
 
     try {
       const subscription = await getCurrentPushSubscription()
-      await removeStoredWebPushSubscription(db, subscription)
+      try { await removeStoredWebPushSubscription(db, subscription) }
+      finally { await subscription?.unsubscribe() }
     } catch {
-      // We deliberately ignore logout cleanup errors so the user isn't blocked from exiting.
+      // Browser unsubscribe also invalidates delivery if deleting the server record failed.
     }
   }, [])
 
   const handleAction = useCallback(async () => {
-    if (busy) return
+    if (busy || status === 'checking') return
 
     if (status === 'enabled') {
       await disable()
@@ -184,33 +196,12 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
     await enable()
   }, [busy, disable, enable, status])
 
-  useEffect(() => {
-    if (!profileId || busy || status !== 'ready' || !shouldAutoEnableWebPush()) {
-      return
-    }
-
-    if (sessionStorage.getItem(AUTO_PROMPT_SESSION_KEY) === '1') {
-      return
-    }
-
-    const handleFirstGesture = () => {
-      sessionStorage.setItem(AUTO_PROMPT_SESSION_KEY, '1')
-      void enable({ silent: true })
-      window.removeEventListener('pointerdown', handleFirstGesture)
-      window.removeEventListener('keydown', handleFirstGesture)
-    }
-
-    window.addEventListener('pointerdown', handleFirstGesture, { once: true })
-    window.addEventListener('keydown', handleFirstGesture, { once: true })
-
-    return () => {
-      window.removeEventListener('pointerdown', handleFirstGesture)
-      window.removeEventListener('keydown', handleFirstGesture)
-    }
-  }, [busy, enable, profileId, status])
-
   const presentation = useMemo<WebPushPresentation>(() => {
     switch (status) {
+      case 'checking':
+        return { title: 'Проверяем подключение', description: 'Проверяем подписку этого браузера.', actionLabel: null }
+      case 'error':
+        return { title: 'Подключение не подтверждено', description: 'Не удалось сохранить подписку. Проверьте интернет и повторите подключение.', actionLabel: busy ? 'Подключаем…' : 'Повторить подключение' }
       case 'enabled':
         return {
           title: 'Push-уведомления включены',
@@ -235,13 +226,13 @@ export function useWebPush(profile: RemoteUser | null, showNotice: NoticeCallbac
         return {
           title: 'Push-уведомления доступны',
           description:
-            'При необходимости вы можете включить push-уведомления для веб-версии. Если браузер не поддерживает их стабильную доставку, уведомления будут приходить по электронной почте.',
+            'Получайте уведомления на этом устройстве. Браузер попросит разрешение после нажатия кнопки. Настройки категорий — ниже.',
           actionLabel: busy ? 'Подключаем...' : 'Включить push',
         }
       default:
         return {
           title: 'Push-уведомления недоступны',
-          description: 'Для этого устройства продолжит использоваться текущая схема уведомлений по электронной почте.',
+          description: 'Браузер не поддерживает push. Попробуйте актуальный браузер. Письма отправляются только для событий, для которых настроена почтовая доставка.',
           actionLabel: null,
         }
     }

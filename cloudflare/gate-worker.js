@@ -19,6 +19,9 @@ let firebaseJwksExpiresAt = 0
 let googleAccessTokenCache = null
 let googleAccessTokenExpiresAt = 0
 let serviceAccountPrivateKeyCache = null
+let gateHealthCache = null
+let gateHealthPending = null
+let gateHealthRevision = 0
 
 export default {
   async fetch(request, env) {
@@ -32,12 +35,87 @@ export default {
       return jsonResponse({ ok: true, service: 'malinkieco-gate-worker' }, 200, request, env)
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/gate/status') {
+      try {
+        const token = (request.headers.get('Authorization') || '').replace(/^Bearer /, '')
+        await verifyFirebaseIdToken(token, env.FIREBASE_PROJECT_ID)
+        return jsonResponse({ ok: true, ...await getGateAvailability(env) }, 200, request, env)
+      } catch (error) {
+        return jsonResponse({ ok: false, error: 'Не удалось проверить доступность ворот.' }, error?.httpStatus === 401 ? 401 : 503, request, env)
+      }
+    }
+
     if (request.method !== 'POST' || url.pathname !== '/api/gate/open') {
       return jsonResponse({ ok: false, error: 'Маршрут не найден.' }, 404, request, env)
     }
 
     return openGate(request, env)
   },
+}
+
+// One probe per five minutes per warm worker, including failures; concurrent callers share it.
+export async function cachedGateProbe(probe, now = Date.now()) {
+  if (gateHealthCache && now < gateHealthCache.nextCheckAtClient) return gateHealthCache
+  if (gateHealthPending) return gateHealthPending
+  const revision = gateHealthRevision
+  gateHealthPending = (async () => {
+    let result
+    try { result = await probe() }
+    catch { result = { available: false, reason: 'Сервис ворот временно недоступен' } }
+    // A failed command is newer evidence than an in-flight background probe.
+    if (revision !== gateHealthRevision) return gateHealthCache
+    gateHealthCache = { ...result, checkedAtClient: now, nextCheckAtClient: now + 300_000 }
+    return gateHealthCache
+  })()
+  try { return await gateHealthPending } finally { gateHealthPending = null }
+}
+
+export function rememberGateFailure(reason, now = Date.now()) {
+  gateHealthRevision++
+  gateHealthCache = { available: false, reason, checkedAtClient: now, nextCheckAtClient: now + 300_000 }
+  return gateHealthCache
+}
+
+function gateHealthCacheKey(env) {
+  return new Request(`https://gate-health.internal/${encodeURIComponent(env.FIREBASE_PROJECT_ID)}/${encodeURIComponent(env.EWELINK_DEVICE_ID)}`)
+}
+
+async function storeGateHealth(env, result) {
+  if (typeof caches === 'undefined') return
+  await caches.default.put(gateHealthCacheKey(env), new Response(JSON.stringify(result), {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' },
+  })).catch(() => undefined)
+}
+
+async function getGateAvailability(env) {
+  if (gateHealthCache && Date.now() < gateHealthCache.nextCheckAtClient) return gateHealthCache
+  // Shared edge cache survives replacement of a warm worker without extra Firestore reads.
+  const cache = typeof caches === 'undefined' ? null : caches.default
+  const cacheKey = gateHealthCacheKey(env)
+  const cached = await cache?.match(cacheKey).catch(() => undefined)
+  if (cached) {
+    const data = await cached.json()
+    if (data.nextCheckAtClient > Date.now()) return data
+  }
+  const result = await cachedGateProbe(async () => {
+    let tokens = await getValidEwelinkTokens(env)
+    const readDevice = () => ewelinkRequest(env, {
+      region: tokens.region, method: 'POST', path: '/v2/device/thing',
+      body: { thingList: [{ itemType: 1, id: env.EWELINK_DEVICE_ID }] },
+      accessToken: tokens.accessToken,
+    })
+    let data
+    try { data = await readDevice() }
+    catch (error) {
+      if (![401, 402].includes(error.errorCode)) throw error
+      tokens = await refreshEwelinkTokens(env, tokens)
+      data = await readDevice()
+    }
+    const device = data.thingList?.find(item => item.itemData?.deviceid === env.EWELINK_DEVICE_ID)?.itemData
+    return { available: device?.online === true, reason: device?.online === true ? '' : 'Модуль ворот не в сети' }
+  })
+  await storeGateHealth(env, result)
+  return result
 }
 
 async function openGate(request, env) {
@@ -152,7 +230,12 @@ async function openGate(request, env) {
       throw error
     }
 
-    await openEwelinkGate(env)
+    try {
+      await openEwelinkGate(env)
+    } catch (error) {
+      await storeGateHealth(env, rememberGateFailure(publicGateErrorMessage(error)))
+      throw error
+    }
 
     const finalCooldownUntilClient = Date.now() + cooldownMs
     await Promise.all([
@@ -675,7 +758,7 @@ async function ewelinkRequest(env, { region, method = 'GET', path, query, body, 
   })
 
   const headers = { 'X-CK-Appid': env.EWELINK_APP_ID }
-  const request = { method, headers }
+  const request = { method, headers, signal: AbortSignal.timeout(10_000) }
 
   if (body !== undefined) {
     const bodyText = JSON.stringify(body)
@@ -695,7 +778,8 @@ async function ewelinkRequest(env, { region, method = 'GET', path, query, body, 
   if (!response.ok || payload.error !== 0) {
     const error = new Error(translateEwelinkError(payload.error, payload.msg))
     error.errorCode = payload.error
-    error.httpStatus = response.status
+    // eWeLink returns HTTP 200 for many application errors. Never propagate it as success.
+    error.httpStatus = 502
     throw error
   }
 

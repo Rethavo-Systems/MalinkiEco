@@ -1,5 +1,9 @@
+import { pendingRequestCount, isPersonalEventVisible } from './lib/navigationState'
+import { canReadVisibleContent } from './lib/readVisibility'
+import { staffRecipients, notificationEmailTargets } from './lib/notificationRecipients'
 ﻿import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { signOut } from 'firebase/auth'
+import { createPortal } from 'react-dom'
 import { auth, db, firebaseSetup, rtdb } from './lib/firebase'
 import {
   approveRegistrationRequest as approveRegistrationRequestAction,
@@ -27,9 +31,10 @@ import {
   setUserRole as setUserRoleAction,
   submitPoll as submitPollRequest,
   togglePinnedChatMessage,
+  toggleChatReaction,
   voteInPoll as voteInPollRequest,
 } from './lib/appApi'
-import { INITIAL_POLL_DRAFT, SUPPORT_EMAIL, TAB_LABELS } from './constants'
+import { INITIAL_POLL_DRAFT, SUPPORT_EMAIL } from './constants'
 import { AccountSettingsPanel } from './components/AccountSettingsPanel'
 import { AuthScreen } from './components/AuthScreen'
 import { EventsSection } from './components/EventsSection'
@@ -46,6 +51,7 @@ import { SupportPanel } from './components/SupportPanel'
 import { useAppGate } from './hooks/useAppGate'
 import { useFirebaseAuthState } from './hooks/useFirebaseAuthState'
 import { useGateStatus } from './hooks/useGateStatus'
+import { useGateAvailability } from './hooks/useGateAvailability'
 import { usePageNotice } from './hooks/usePageNotice'
 import { useResidentAuth } from './hooks/useResidentAuth'
 import { useResidentData } from './hooks/useResidentData'
@@ -59,7 +65,7 @@ import {
   uploadChatFile,
   uploadUserAvatar,
 } from './lib/chatFilesApi'
-import { openGate as openGateRequest } from './lib/gateApi'
+import { GateServiceError, openGate as openGateRequest } from './lib/gateApi'
 import { clearRequestedTabFromUrl, readRequestedTabFromUrl } from './lib/webPush'
 import type {
   ChatMessage,
@@ -83,7 +89,9 @@ import {
   paymentDetails,
   roleLabel,
 } from './utils'
+import { AppNavigation } from './components/AppNavigation'
 import './App.css'
+import './AppModern.css'
 
 const EVENT_EMAIL_FOOTER =
   'Рекомендуем открыть MalinkiEco, чтобы ознакомиться с деталями события и актуальной информацией.'
@@ -97,6 +105,7 @@ const AVATAR_CROP_MAX_ZOOM = 3
 
 type TabSeenState = Record<TabKey, number>
 type AvatarCropDraft = {
+  brightness: number
   previewUrl: string
   zoom: number
   offsetX: number
@@ -216,6 +225,7 @@ async function createCroppedAvatarFile(crop: AvatarCropDraft) {
   }
 
   context.imageSmoothingEnabled = true
+  context.filter = `brightness(${crop.brightness}%)`
   context.imageSmoothingQuality = 'high'
   context.drawImage(
     image,
@@ -249,6 +259,8 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
+  const avatarButtonRef = useRef<HTMLButtonElement>(null)
+  const [avatarMenuPosition, setAvatarMenuPosition] = useState({ left: 0, top: 0 })
   const [avatarInputElement, setAvatarInputElement] = useState<HTMLInputElement | null>(null)
   const [avatarBusy, setAvatarBusy] = useState(false)
   const [avatarCropDraft, setAvatarCropDraft] = useState<AvatarCropDraft | null>(null)
@@ -259,12 +271,10 @@ function App() {
   const [gateOpening, setGateOpening] = useState(false)
   const [localGateCooldownUntil, setLocalGateCooldownUntil] = useState(0)
   const [gateClockNow, setGateClockNow] = useState(() => Date.now())
-  const [chatJumpDirection, setChatJumpDirection] = useState<'up' | 'down'>('up')
-  const [chatViewportElement, setChatViewportElement] = useState<HTMLElement | null>(null)
-  const [chatActivationKey, setChatActivationKey] = useState(0)
+  const [maintenanceSignIn, setMaintenanceSignIn] = useState(false)
   const appGate = useAppGate()
   const { authUser, authLoading } = useFirebaseAuthState()
-  const { pageNotice, showNotice, clearNotice } = usePageNotice()
+  const { pageNotice, noticeKind, showNotice, clearNotice } = usePageNotice()
   const {
     authMode,
     authForm,
@@ -298,6 +308,7 @@ function App() {
     handleAction: handleWebPushAction,
   } = useWebPush(maintenanceLocked ? null : profile, showNotice)
   const gateStatus = useGateStatus(Boolean(profile?.id) && !maintenanceLocked)
+  const gateAvailability = useGateAvailability(Boolean(profile?.id) && !maintenanceLocked)
 
   const {
     users,
@@ -322,26 +333,19 @@ function App() {
   const gateOpeningGlobally = gateOpeningLockUntilClient > gateClockNow
   const gateClockUntilClient = Math.max(gateCooldownUntilClient, gateOpeningLockUntilClient)
   const gateDebtBlocked = !isAdmin && Number(profile?.balance ?? 0) <= GATE_DEBT_BLOCK_THRESHOLD
-  const gateDisabled = gateOpening || gateOpeningGlobally || gateCoolingDown || gateDebtBlocked
+  const gateDisabled = gateOpening || gateOpeningGlobally || gateCoolingDown || gateDebtBlocked || gateAvailability.state === 'unavailable' || gateAvailability.state === 'checking'
   const gateButtonHint = gateDebtBlocked
     ? 'Недоступно при долге от 5 000 ₽'
     : gateOpening || gateOpeningGlobally
       ? 'Активация'
     : gateCoolingDown
       ? `Подождите ${gateCooldownRemainingSeconds} сек.`
-      : 'Доступно'
-  const pendingPaymentRequestsCount = paymentRequests.filter((request) => request.status === 'PENDING').length
+      : gateAvailability.state === 'checking' ? 'Проверяем связь…' : gateAvailability.state === 'available' ? 'Сервис доступен' : gateAvailability.reason
+  const pendingPaymentRequestsCount = pendingRequestCount(paymentRequests)
   const pendingRegistrationRequestsCount =
-    registrationRequests.filter((request) => request.status === 'PENDING').length
+    pendingRequestCount(registrationRequests)
   const pendingOwnersItemsCount = pendingPaymentRequestsCount + pendingRegistrationRequestsCount
-  const staffUserIds = useMemo(
-    () =>
-      users
-        .filter((owner) => owner.role === 'ADMIN' || owner.role === 'MODERATOR')
-        .map((owner) => owner.id)
-        .filter(Boolean),
-    [users],
-  )
+  const staffUserIds = useMemo(() => staffRecipients(users), [users])
 
   const visibleTabs = useMemo<TabKey[]>(
     () => (isStaff ? ['events', 'chat', 'owners', 'polls', 'payments', 'logs'] : ['events', 'chat', 'owners', 'polls', 'payments']),
@@ -389,10 +393,15 @@ function App() {
     if (!avatarMenuOpen) return
 
     const closeAvatarMenu = () => setAvatarMenuOpen(false)
+    const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { closeAvatarMenu(); avatarButtonRef.current?.focus() } }
     window.addEventListener('click', closeAvatarMenu)
+    window.addEventListener('keydown', handleKey)
+    window.addEventListener('resize', closeAvatarMenu)
 
     return () => {
       window.removeEventListener('click', closeAvatarMenu)
+      window.removeEventListener('keydown', handleKey)
+      window.removeEventListener('resize', closeAvatarMenu)
     }
   }, [avatarMenuOpen])
 
@@ -405,72 +414,6 @@ function App() {
     }
   }, [avatarCropDraft?.previewUrl])
 
-  useEffect(() => {
-    if (activeTab !== 'chat') {
-      setChatJumpDirection('up')
-      return
-    }
-
-    setChatJumpDirection('up')
-    setChatActivationKey((current) => current + 1)
-  }, [activeTab])
-
-  useEffect(() => {
-    if (activeTab !== 'chat' || !chatViewportElement) return
-
-    const scrollToChat = () => {
-      const edgeGap = window.innerWidth <= 640 ? 0 : 4
-      window.requestAnimationFrame(() => {
-        chatViewportElement.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' })
-        if (edgeGap > 0) {
-          window.scrollBy({ top: -edgeGap, behavior: 'auto' })
-        }
-        setChatJumpDirection('up')
-      })
-    }
-
-    const timers = [0, 80, 180, 360, 560].map((delay) => window.setTimeout(scrollToChat, delay))
-
-    return () => {
-      timers.forEach((timer) => window.clearTimeout(timer))
-    }
-  }, [activeTab, chatActivationKey, chatViewportElement])
-
-  useEffect(() => {
-    if (activeTab !== 'chat' || !chatViewportElement) return
-
-    let frame = 0
-    const updateJumpDirection = () => {
-      window.cancelAnimationFrame(frame)
-      frame = window.requestAnimationFrame(() => {
-        const edgeGap = window.innerWidth <= 640 ? 0 : 4
-        if (window.innerWidth <= 760) {
-          const targetTop = Math.max(
-            0,
-            window.scrollY + chatViewportElement.getBoundingClientRect().top - edgeGap,
-          )
-          if (chatViewportElement.getBoundingClientRect().top < -2 && window.scrollY > targetTop + 2) {
-            window.scrollTo({ top: targetTop, behavior: 'auto' })
-          }
-        }
-
-        const threshold = Math.min(150, Math.max(72, window.innerHeight * 0.18))
-        const chatTop = chatViewportElement.getBoundingClientRect().top
-        setChatJumpDirection(chatTop > threshold ? 'down' : 'up')
-      })
-    }
-
-    updateJumpDirection()
-    window.addEventListener('scroll', updateJumpDirection, { passive: true })
-    window.addEventListener('resize', updateJumpDirection)
-
-    return () => {
-      window.cancelAnimationFrame(frame)
-      window.removeEventListener('scroll', updateJumpDirection)
-      window.removeEventListener('resize', updateJumpDirection)
-    }
-  }, [activeTab, chatViewportElement])
-
   const chatReaderCutoff = useMemo(() => {
     if (!profile) return 0
     return users
@@ -479,12 +422,12 @@ function App() {
   }, [users, profile])
 
   const visibleEvents = useMemo(
-    () => events.filter((item) => item.type !== 'POLL' && (item.targetUserId === '' || item.targetUserId === profile?.id)),
+    () => events.filter((item) => item.type !== 'POLL' && isPersonalEventVisible(item.targetUserId, profile?.id ?? '')),
     [events, profile?.id],
   )
 
   const visiblePolls = useMemo(
-    () => events.filter((item) => item.type === 'POLL' && (item.targetUserId === '' || item.targetUserId === profile?.id)),
+    () => events.filter((item) => item.type === 'POLL' && isPersonalEventVisible(item.targetUserId, profile?.id ?? '')),
     [events, profile?.id],
   )
   const unreadChatCount = useMemo(
@@ -518,55 +461,66 @@ function App() {
   }, [auditLogs, chatMessages, isStaff, paymentRequests, registrationRequests, visibleEvents, visiblePolls])
 
   const [seenTabs, setSeenTabs] = useState<TabSeenState>(emptySeenState)
+  const [seenUserId, setSeenUserId] = useState('')
 
   useEffect(() => {
     if (!profile?.id) {
       setSeenTabs(emptySeenState())
+      setSeenUserId('')
       return
     }
 
     const storageKey = `${TAB_BADGE_STORAGE_PREFIX}:${profile.id}`
+    setSeenUserId(profile.id)
     const raw = window.localStorage.getItem(storageKey)
     if (!raw) {
-      setSeenTabs(latestByTab)
+      setSeenTabs(Object.fromEntries(Object.keys(emptySeenState()).map(key => [key, Date.now()])) as TabSeenState)
       return
     }
 
     try {
-      const parsed = JSON.parse(raw) as Partial<TabSeenState>
-      setSeenTabs({
-        ...emptySeenState(),
-        ...parsed,
-      })
+      const parsed = JSON.parse(raw) as Partial<TabSeenState> | null
+      const now = Date.now()
+      setSeenTabs(Object.fromEntries(Object.keys(emptySeenState()).map(key => {
+        const value = Number(parsed?.[key as keyof TabSeenState])
+        return [key, Number.isFinite(value) && value >= 0 && value <= now ? value : now]
+      })) as TabSeenState)
     } catch {
-      setSeenTabs(latestByTab)
+      setSeenTabs(Object.fromEntries(Object.keys(emptySeenState()).map(key => [key, Date.now()])) as TabSeenState)
     }
   }, [profile?.id])
 
   useEffect(() => {
-    if (!profile?.id) return
+    if (!profile?.id || seenUserId !== profile.id) return
     const storageKey = `${TAB_BADGE_STORAGE_PREFIX}:${profile.id}`
     window.localStorage.setItem(storageKey, JSON.stringify(seenTabs))
-  }, [profile?.id, seenTabs])
+  }, [profile?.id, seenTabs, seenUserId])
 
   useEffect(() => {
-    if (!profile?.id) return
-    const latestForActive = latestByTab[activeTab]
-    setSeenTabs((current) => {
-      if (latestForActive <= Number(current[activeTab] ?? 0)) return current
-      return {
-        ...current,
-        [activeTab]: latestForActive,
-      }
-    })
-  }, [activeTab, latestByTab, profile?.id])
+    if (!profile?.id || seenUserId !== profile.id) return
+    const markVisible = () => {
+      if (!canReadVisibleContent()) return
+      const latestForActive = latestByTab[activeTab]
+      setSeenTabs(current => latestForActive > Number(current[activeTab] ?? 0)
+        ? { ...current, [activeTab]: latestForActive } : current)
+    }
+    markVisible()
+    document.addEventListener('visibilitychange', markVisible)
+    document.addEventListener('close', markVisible, true)
+    window.addEventListener('focus', markVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', markVisible)
+      document.removeEventListener('close', markVisible, true)
+      window.removeEventListener('focus', markVisible)
+    }
+  }, [activeTab, latestByTab, profile?.id, seenUserId, settingsOpen, supportOpen, avatarCropDraft, avatarMenuOpen])
 
   const tabBadgeCounts = useMemo<Record<TabKey, number>>(() => {
     const eventsCount = visibleEvents.filter((item) => Number(item.createdAtClient ?? 0) > Number(seenTabs.events ?? 0)).length
     const pollsCount = visiblePolls.filter((item) => Number(item.createdAtClient ?? 0) > Number(seenTabs.polls ?? 0)).length
-    const paymentsCount = visibleEvents.filter(
+    const paymentsCount = isStaff ? 0 : visibleEvents.filter(
       (item) =>
-        (item.type === 'CHARGE' || item.type === 'EXPENSE') &&
+        item.type === 'CHARGE' && !item.isClosed && (!item.closesAtClient || item.closesAtClient > Date.now()) &&
         Number(item.createdAtClient ?? 0) > Number(seenTabs.payments ?? 0),
     ).length
     const ownersCount = isStaff ? pendingOwnersItemsCount : 0
@@ -584,40 +538,10 @@ function App() {
     }
   }, [auditLogs, isStaff, pendingOwnersItemsCount, seenTabs, unreadChatCount, visibleEvents, visiblePolls])
 
-  const showChatNavigation = () => {
-    if (chatJumpDirection === 'up') {
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-      setChatJumpDirection('down')
-      return
-    }
-
-    if (!chatViewportElement) return
-    const edgeGap = window.innerWidth <= 640 ? 0 : 4
-    chatViewportElement.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'smooth' })
-    if (edgeGap > 0) {
-      window.setTimeout(() => window.scrollBy({ top: -edgeGap, behavior: 'smooth' }), 220)
-    }
-    setChatJumpDirection('up')
-  }
-
   const normalizeEmail = (value: string | undefined) => value?.trim().toLowerCase() ?? ''
 
   const dedupeEmailTargets = (values: string[]) =>
     Array.from(new Set(values.map((item) => normalizeEmail(item)).filter((item) => item.includes('@'))))
-
-  const collectBroadcastEmailTargets = (excludedUserIds: string[] = []) => {
-    const excluded = new Set(excludedUserIds)
-    return dedupeEmailTargets(
-      users.filter((owner) => owner.id && !excluded.has(owner.id)).map((owner) => owner.email),
-    )
-  }
-
-  const collectTargetedEmailTargets = (targetUserIds: string[]) => {
-    const targets = new Set(targetUserIds)
-    return dedupeEmailTargets(
-      users.filter((owner) => owner.id && targets.has(owner.id)).map((owner) => owner.email),
-    )
-  }
 
   const buildEventEmailBody = ({
     subject,
@@ -669,7 +593,7 @@ function App() {
   }) => {
     if (!db || !profile?.id) return
 
-    const emailTargets = collectBroadcastEmailTargets(excludedUserIds)
+    const emailTargets = notificationEmailTargets(users, category, undefined, excludedUserIds)
     if (emailTargets.length === 0) return
 
     await enqueueEmailNotification(db, {
@@ -710,7 +634,7 @@ function App() {
     if (!db || !profile?.id) return
 
     const emailTargets = dedupeEmailTargets([
-      ...collectTargetedEmailTargets(targetUserIds),
+      ...notificationEmailTargets(users, category, targetUserIds),
       ...explicitEmailTargets,
     ])
     if (emailTargets.length === 0) return
@@ -746,8 +670,8 @@ function App() {
 
     if (!file || avatarBusy) return
 
-    if (!file.type.startsWith('image/')) {
-      showNotice('Выберите изображение для аватарки.')
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      showNotice('Выберите фото JPEG, PNG или WebP.')
       return
     }
 
@@ -763,6 +687,7 @@ function App() {
 
     setAvatarMenuOpen(false)
     setAvatarCropDraft({
+      brightness: 100,
       previewUrl: URL.createObjectURL(file),
       zoom: 1,
       offsetX: 0,
@@ -910,6 +835,7 @@ function App() {
       await updateNotificationSettingsAction(db, profile.id, settings)
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось обновить настройки уведомлений.')
+      throw error
     } finally {
       setSavingNotificationSettings(false)
     }
@@ -931,6 +857,7 @@ function App() {
 
   const handleOpenGate = async () => {
     if (gateOpening) return
+    if (gateAvailability.state === 'unavailable' || gateAvailability.state === 'checking') return
     if (gateDebtBlocked) {
       showNotice('Открытие ворот недоступно при задолженности от 5 000 ₽.')
       return
@@ -951,16 +878,17 @@ function App() {
       const serverCooldownUntil = Number(response.cooldownUntilClient || 0)
       setLocalGateCooldownUntil(Math.max(serverCooldownUntil, nextNow + GATE_UI_COOLDOWN_MS))
       setGateClockNow(nextNow)
-      showNotice('Кнопка открытия ворот активирована.')
+      showNotice('Команда открытия отправлена.', 'success')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Не удалось открыть ворота.')
+      if (error instanceof GateServiceError && error.serviceUnavailable) gateAvailability.reportFailure(error.message)
+      showNotice(error instanceof Error ? error.message : 'Не удалось открыть ворота.', 'error')
     } finally {
       setGateOpening(false)
     }
   }
 
   const markChatRead = async (latestSeen: number) => {
-    if (!db || !profile) return
+    if (!db || !profile || !canReadVisibleContent()) return
     await markChatReadRequest(db, profile.id, latestSeen, profile.lastChatReadAt)
   }
 
@@ -1085,11 +1013,11 @@ function App() {
     }
   }
 
-  const submitPaymentRequest = async (amount: number, selectedEvents: CommunityEvent[], purpose: string) => {
+  const submitPaymentRequest = async (amount: number, selectedEvents: CommunityEvent[], purpose: string, plots: string[]) => {
     if (!db || !profile) return
 
     try {
-      await createPaymentRequestRequest(db, profile, amount, selectedEvents, purpose)
+      await createPaymentRequestRequest(db, profile, amount, selectedEvents, purpose, plots)
       try {
         await enqueueTargetedNotification(db, {
           title: 'Новая заявка на оплату',
@@ -1099,12 +1027,13 @@ function App() {
           targetUserIds: staffUserIds,
         })
       } catch {
-        showNotice('Заявка на оплату отправлена, но уведомление staff пока не поставлено в очередь.')
+        showNotice('Заявка на оплату отправлена, но уведомление администраторам пока не поставлено в очередь.')
         return
       }
       showNotice('Заявка на оплату отправлена')
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось отправить заявку на оплату')
+      throw error
     }
   }
 
@@ -1250,7 +1179,7 @@ function App() {
     }
   }
 
-  const handleCreateEvent = async (payload: { title: string; message: string; type: EventType; amount: number }) => {
+  const handleCreateEvent = async (payload: { title: string; message: string; type: EventType; amount: number; closesAtClient?: number }) => {
     if (!db || !profile) return
 
     try {
@@ -1390,6 +1319,7 @@ function App() {
       showNotice('Опрос создан')
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось создать опрос')
+      throw error
     } finally {
       setPollSubmitting(false)
     }
@@ -1445,6 +1375,7 @@ function App() {
       showNotice('Опрос закрыт')
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Не удалось закрыть опрос')
+      throw error
     }
   }
 
@@ -1506,7 +1437,7 @@ function App() {
     if (!db || !profile) return
 
     try {
-      await confirmPaymentRequestAction(db, profile, request.id)
+      if (!await confirmPaymentRequestAction(db, profile, request.id)) { showNotice('Заявка уже обработана.'); return }
 
       let pushQueued = true
       let emailQueued = true
@@ -1567,7 +1498,7 @@ function App() {
     if (!db || !profile) return
 
     try {
-      await rejectPaymentRequestAction(db, profile, request.id, reason)
+      if (!await rejectPaymentRequestAction(db, profile, request.id, reason)) { showNotice('Заявка уже обработана.'); return }
 
       let pushQueued = true
       let emailQueued = true
@@ -1634,9 +1565,10 @@ function App() {
     return <SplashScreen message="Подключаем веб-кабинет поселка..." />
   }
 
-  if (maintenanceLocked) {
+  if (maintenanceLocked && !(maintenanceSignIn && !authUser)) {
     return (
       <MaintenanceScreen
+        onSignIn={!authUser ? () => setMaintenanceSignIn(true) : undefined}
         title={gateMode === 'error' ? appGate.errorTitle : appGate.maintenanceTitle}
         message={gateMode === 'error' ? appGate.errorMessage : appGate.maintenanceMessage}
         variant={gateMode === 'error' ? 'error' : 'maintenance'}
@@ -1667,7 +1599,7 @@ function App() {
   }
 
   return (
-    <div className={`shell ${activeTab === 'chat' ? 'shell--chat' : ''}`}>
+    <div className={`shell shell--modern ${activeTab === 'chat' ? 'shell--chat' : ''}`}>
       <div className="ambient ambient-left" />
       <div className="ambient ambient-right" />
 
@@ -1678,15 +1610,22 @@ function App() {
               ref={setAvatarInputElement}
               className="brand-avatar-input"
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
               onChange={(event) => void handleAvatarFileChange(event)}
             />
             <button
               className={`brand-pill brand-avatar-button ${profile.avatar ? 'has-avatar' : 'is-empty'} ${avatarBusy ? 'is-busy' : ''}`}
+              ref={avatarButtonRef}
               type="button"
-              onClick={() => setAvatarMenuOpen((current) => !current)}
-              aria-label="Аватарка профиля"
-              title="Аватарка профиля"
+              onClick={() => {
+                const rect = avatarButtonRef.current?.getBoundingClientRect()
+                if (rect) setAvatarMenuPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 232)), top: rect.bottom + 8 })
+                setAvatarMenuOpen(current => !current)
+              }}
+              aria-expanded={avatarMenuOpen}
+              aria-controls="profile-photo-menu"
+              aria-label="Изменить фото профиля"
+              title="Изменить фото профиля"
             >
               {profileAvatarUrl ? (
                 <img src={profileAvatarUrl} alt="" />
@@ -1703,15 +1642,23 @@ function App() {
               )}
               {avatarBusy && <span className="brand-avatar-loader" aria-hidden="true" />}
             </button>
-            {avatarMenuOpen && (
-              <div className="brand-avatar-menu">
-                <button type="button" onClick={() => avatarInputElement?.click()} disabled={avatarBusy}>
+            {avatarMenuOpen && createPortal(
+              <div id="profile-photo-menu" className="brand-avatar-menu profile-photo-menu" style={avatarMenuPosition} onClick={event => event.stopPropagation()} aria-label="Фото профиля" ref={element => { element?.querySelector('button')?.focus() }} onKeyDown={event => {
+                if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return
+                event.preventDefault()
+                const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+                const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+                buttons[(index + (event.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length]?.focus()
+              }}>
+                <button type="button" onClick={() => { setAvatarMenuOpen(false); avatarInputElement?.click() }} disabled={avatarBusy}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h4l2-3h4l2 3h4v13H4Z" /><circle cx="12" cy="13" r="4" /></svg>
                   {profile.avatar ? 'Изменить аватарку' : 'Добавить аватарку'}
                 </button>
                 <button type="button" onClick={() => void handleDeleteAvatar()} disabled={!profile.avatar || avatarBusy}>
-                  Удалить аватарку
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6m4-6v6" /></svg>
+                  Удалить фото
                 </button>
-              </div>
+              </div>, document.body
             )}
           </div>
           <div>
@@ -1725,10 +1672,13 @@ function App() {
         </div>
 
         <div className="topbar-actions">
-          <div className={`balance-chip ${balanceTone(profile.balance)}`}>
+          <button type="button" className={`balance-chip ${balanceTone(profile.balance)}`}
+            onClick={() => { setActiveTab('payments'); window.scrollTo({ top: 0, behavior: 'instant' }) }}
+            aria-label={`Перейти в оплату. ${balanceLabel(profile.balance)}. ${profile.balance.toLocaleString('ru-RU')} рублей`}
+            title="Перейти в раздел оплаты">
             <span>{balanceLabel(profile.balance)}</span>
             <strong>{profile.balance.toLocaleString('ru-RU')} ₽</strong>
-          </div>
+          </button>
           <div className="topbar-control-stack" aria-label="Быстрые действия">
             <button
               className={`gate-open-button ${gateOpening || gateOpeningGlobally ? 'is-busy' : ''} ${gateCoolingDown ? 'is-cooling' : ''} ${gateDebtBlocked ? 'is-debt-blocked' : ''}`}
@@ -1740,10 +1690,9 @@ function App() {
             >
               <span className="gate-open-button__main">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 20V7.6c0-.9.6-1.7 1.5-1.9l11-2.7c.8-.2 1.5.4 1.5 1.2V20" />
-                  <path d="M4 20h16" />
-                  <path d="M8 19V9.4l6-1.5V20" />
-                  <path d="M11 14.5h.01" />
+                  <rect x="3" y="3" width="18" height="4" rx="1" />
+                  <path d="M5 7v14h14V7M3 21h18" />
+                  <path d="M5 10h14M5 13h14M5 16h14M10 19h4" />
                 </svg>
                 <span>Открыть ворота</span>
               </span>
@@ -1775,25 +1724,11 @@ function App() {
         </div>
       </header>
 
-      <nav className="tab-bar" aria-label="Навигация">
-        {visibleTabs.map((tab) => (
-          <button
-            key={tab}
-            className={`tab-button ${activeTab === tab ? 'is-active' : ''}`}
-            onClick={() => setActiveTab(tab)}
-          >
-            <span>{TAB_LABELS[tab]}</span>
-            {tabBadgeCounts[tab] > 0 && (
-              <span className="tab-badge" aria-label={`Новых элементов: ${tabBadgeCounts[tab]}`}>
-                {tabBadgeCounts[tab]}
-              </span>
-            )}
-          </button>
-        ))}
-      </nav>
+      <AppNavigation activeTab={activeTab} tabs={visibleTabs} badges={tabBadgeCounts} balance={profile.balance} onSelect={setActiveTab} />
 
       {pageNotice && (
-        <div className="notice-bar" role="status">
+        <div className={`notice-bar notice-bar--${noticeKind}`} role={noticeKind === 'error' ? 'alert' : 'status'}>
+          <span className="notice-symbol" aria-hidden="true">{noticeKind === 'error' ? '!' : noticeKind === 'success' ? '✓' : 'i'}</span>
           <span>{pageNotice}</span>
           <button className="notice-close" type="button" onClick={clearNotice}>
             Закрыть
@@ -1826,7 +1761,7 @@ function App() {
       />
 
       {avatarCropDraft && (
-        <div className="avatar-crop-overlay" role="dialog" aria-modal="true" aria-label="Настройка аватарки" onClick={handleCancelAvatarCrop}>
+        <dialog className="avatar-crop-overlay" ref={element => { if (element && !element.open) element.showModal() }} aria-label="Настройка аватарки" onCancel={event => { event.preventDefault(); handleCancelAvatarCrop() }} onClick={event => { if (event.target === event.currentTarget) handleCancelAvatarCrop() }}>
           <div className="avatar-crop-panel" onClick={(event) => event.stopPropagation()}>
             <div className="avatar-crop-heading">
               <p className="eyebrow accent">Аватарка</p>
@@ -1847,11 +1782,13 @@ function App() {
                 alt=""
                 draggable={false}
                 onLoad={handleAvatarCropImageLoad}
+                onError={() => { setAvatarCropDraft(null); showNotice('Не удалось прочитать фото. Выберите другой файл JPEG, PNG или WebP.') }}
                 style={
                   avatarCropMetrics
                     ? {
                         width: `${avatarCropMetrics.renderedWidth}px`,
                         height: `${avatarCropMetrics.renderedHeight}px`,
+                        filter: `brightness(${avatarCropDraft.brightness}%)`,
                         transform: `translate3d(${avatarCropMetrics.left}px, ${avatarCropMetrics.top}px, 0)`,
                       }
                     : undefined
@@ -1868,11 +1805,14 @@ function App() {
                 max={AVATAR_CROP_MAX_ZOOM}
                 step="0.01"
                 value={avatarCropDraft.zoom}
+                disabled={avatarBusy}
                 onChange={(event) => updateAvatarCropZoom(Number(event.currentTarget.value))}
               />
             </label>
 
             <div className="avatar-crop-actions">
+              <label className="avatar-crop-zoom">Яркость · {avatarCropDraft.brightness}%<input type="range" min="60" max="140" value={avatarCropDraft.brightness} disabled={avatarBusy} onChange={event => { const brightness = Number(event.target.value); setAvatarCropDraft(current => current ? { ...current, brightness } : null) }} /></label>
+              <button className="ghost-button" type="button" disabled={avatarBusy} onClick={() => setAvatarCropDraft(current => current ? { ...current, zoom: 1, offsetX: 0, offsetY: 0, brightness: 100 } : null)}>Сбросить</button>
               <button className="ghost-button" type="button" onClick={handleCancelAvatarCrop} disabled={avatarBusy}>
                 Отмена
               </button>
@@ -1881,11 +1821,10 @@ function App() {
               </button>
             </div>
           </div>
-        </div>
+        </dialog>
       )}
 
       <main
-        ref={setChatViewportElement}
         className={`content-grid ${activeTab === 'chat' ? 'content-grid--chat' : ''}`}
       >
         {activeTab === 'events' && (
@@ -1902,25 +1841,8 @@ function App() {
 
         {activeTab === 'chat' && (
           <>
-            <button
-              className={`chat-screen-jump is-${chatJumpDirection}`}
-              type="button"
-              onClick={showChatNavigation}
-              aria-label={chatJumpDirection === 'up' ? 'Показать верхнюю панель и разделы' : 'Вернуться к чату'}
-              title={chatJumpDirection === 'up' ? 'Показать разделы' : 'Вернуться к чату'}
-            >
-              <span className="chat-screen-jump__arrows" aria-hidden="true">
-                <svg viewBox="0 0 32 16">
-                  <path d="M9 11 16 4l7 7" />
-                  <path d="M9 15 16 8l7 7" />
-                </svg>
-              </span>
-              <span className="chat-screen-jump__label">
-                {chatJumpDirection === 'up' ? 'Разделы' : 'К чату'}
-              </span>
-            </button>
-
             <ResidentChat
+              readingBlocked={settingsOpen || supportOpen || Boolean(avatarCropDraft) || avatarMenuOpen}
               profile={profile}
               users={users}
               messages={chatMessages}
@@ -1929,8 +1851,8 @@ function App() {
               onSaveEdit={saveEditedMessage}
               onDelete={removeChatMessage}
               onTogglePin={togglePinnedMessage}
+              onReact={async (messageId, emoji) => { if (db && profile) await toggleChatReaction(db, profile.id, messageId, emoji) }}
               onMarkRead={markChatRead}
-              activationKey={chatActivationKey}
             />
           </>
         )}

@@ -1,0 +1,98 @@
+/* Messenger-style poll feed, independent of the old dashboard poll panels. */
+html[data-theme] .messenger-polls__content { max-width: 740px; margin-inline: auto; }
+html[data-theme] .messenger-polls__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+html[data-theme] .messenger-polls__header h2 { font-size: 22px; font-weight: 600; margin: 0; color: var(--ui-text); }
+html[data-theme] .messenger-polls__create-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 8px 13px; border: 1px solid var(--ui-line); border-radius: 10px; background: var(--ui-active); color: var(--ui-text); font: 500 14px 'Segoe UI',sans-serif; cursor: pointer; white-space: nowrap; }
+html[data-theme] .messenger-polls__create-button > span { font-size: 21px; line-height: 1; color: var(--ui-accent); }
+html[data-theme] .messenger-polls__text-button { display: inline-flex; align-items: center; gap: 5px; width: auto; min-height: 32px; padding: 4px 0; border: 0; border-radius: 4px; background: transparent; color: var(--ui-accent); box-shadow: none; font: 500 13px/1.4 'Segoe UI',sans-serif; text-align: left; cursor: pointer; }
+html[data-theme] .messenger-polls__text-button:hover { text-decoration: underline; }
+html[data-theme] .messenger-polls :is(button,input,textarea,summary):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+html[data-theme] .messenger-polls__feed { display: grid; gap: 18px; }
+html[data-theme] .messenger-poll { min-width: 0; padding: 22px 24px 12px; border: 1px solid var(--ui-line); border-radius: 14px; background: var(--ui-surface); color: var(--ui-text); box-shadow: 0 3px 14px #00000008; }
+html[data-theme] .messenger-poll h3 { margin: 0 0 5px; padding: 0; color: var(--ui-text); font-size: 17px; line-height: 1.45; font-weight: 600; overflow-wrap: anywhere; }
+html[data-theme] .messenger-poll__kind { margin: 0; color: var(--ui-muted); font: 400 12px/1.5 'Segoe UI',sans-serif; }
+html[data-theme] .messenger-poll__author { margin: 0 0 3px; color: var(--ui-muted); font: 400 12px/1.5 'Segoe UI',sans-serif; }
+html[data-theme] .messenger-poll__description { margin: 12px 0 4px; color: var(--ui-text); font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+html[data-theme] .messenger-poll__options { display: grid; gap: 2px; margin: 14px -8px 6px; }
+html[data-theme] .messenger-poll__option { position: relative; display: flex; align-items: flex-start; gap: 13px; width: 100%; min-height: 48px; padding: 11px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ui-text); box-shadow: none; text-align: left; font: 400 15px/1.45 'Segoe UI',sans-serif; cursor: pointer; }
+html[data-theme] .messenger-poll__option:not(:disabled):hover { background: var(--ui-active); }
+html[data-theme] .messenger-poll__option:disabled { opacity: 1; cursor: default; }
+html[data-theme] .messenger-poll__option-mark { flex: 0 0 36px; display: flex; justify-content: flex-start; padding-top: 1px; color: var(--ui-muted); font-size: 13px; font-variant-numeric: lining-nums tabular-nums; }
+html[data-theme] .messenger-poll__radio { display: block; width: 19px; height: 19px; border: 2px solid var(--ui-muted); border-radius: 50%; box-sizing: border-box; }
+html[data-theme] .messenger-poll__option-content { display: grid; gap: 8px; width: 100%; min-width: 0; overflow-wrap: anywhere; }
+html[data-theme] .messenger-poll__bar-track { display: block; height: 5px; background: var(--ui-line); border-radius: 5px; overflow: hidden; }
+html[data-theme] .messenger-poll__bar-track > span { display: block; height: 100%; min-width: 0; border-radius: inherit; background: #708da7; transition: width 220ms ease; }
+html[data-theme] .messenger-poll__option.is-selected .messenger-poll__bar-track > span { background: var(--ui-accent); }
+html[data-theme] .messenger-poll__chosen { color: var(--ui-accent); font-weight: 600; }
+html[data-theme] .messenger-poll__footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; min-height: 36px; color: var(--ui-muted); font: 400 12px/1.5 'Segoe UI',sans-serif; }
+html[data-theme] .messenger-poll__date { font-size: 11px; margin-left: auto; white-space: nowrap; }
+html[data-theme] .messenger-poll__manage { margin-top: 7px; padding-top: 10px; border-top: 1px solid var(--ui-line); font-size: 12px; color: var(--ui-muted); }
+html[data-theme] .messenger-poll__manage summary { cursor: pointer; padding-bottom: 6px; }
+html[data-theme] .messenger-poll__manage .messenger-polls__text-button { color: var(--ui-muted); }
+html[data-theme] .messenger-polls__empty { padding: 48px 20px; border: 1px dashed var(--ui-line); border-radius: 14px; text-align: center; }
+html[data-theme] .messenger-polls__empty strong { font-weight: 500; font-size: 16px; }
+html[data-theme] .messenger-polls__empty p { color: var(--ui-muted); font-size: 14px; }
+
+html[data-theme] .messenger-poll-compose { margin: 0 0 22px; padding: 22px 24px; border: 1px solid var(--ui-line); border-radius: 14px; background: var(--ui-surface); }
+html[data-theme] .messenger-poll-compose fieldset { min-width: 0; padding: 0; margin: 0; border: 0; display: grid; gap: 18px; }
+html[data-theme] .messenger-poll-compose legend { color: var(--ui-text); margin-bottom: 18px; padding: 0; font-size: 17px; font-weight: 600; }
+html[data-theme] .messenger-poll-compose__field { min-width: 0; display: grid; gap: 8px; }
+html[data-theme] .messenger-poll-compose__field > span { color: var(--ui-muted); font-size: 13px; font-weight: 500; }
+html[data-theme] .messenger-poll-compose__field small { margin-left: 6px; font-weight: 400; }
+html[data-theme] .messenger-poll-compose :is(input:not([type=checkbox]),textarea) { width: 100%; box-sizing: border-box; min-height: 42px; border: 1px solid var(--ui-line); border-radius: 8px; padding: 10px 12px; background: var(--ui-bg); color: var(--ui-text); font: 400 14px/1.45 'Segoe UI',sans-serif; }
+html[data-theme] .messenger-poll-compose textarea { resize: vertical; }
+html[data-theme] .messenger-poll-compose__options { border: 1px solid var(--ui-line); border-radius: 10px; padding: 4px 14px; background: var(--ui-input); }
+html[data-theme] .messenger-poll-compose__option { display: grid; grid-template-columns: 16px minmax(0,1fr) 28px; gap: 10px; align-items: center; min-width: 0; min-height: 48px; margin-inline: -8px; padding-inline: 8px; }
+html[data-theme] .messenger-poll-compose__option + .messenger-poll-compose__option { border-top: 1px solid var(--ui-line); }
+html[data-theme] .shell--modern .messenger-polls .messenger-poll-compose .messenger-poll-compose__options .messenger-poll-compose__option input {
+  display: block; width: 100%; min-width: 0; height: 46px; min-height: 0;
+  margin: 0; padding: 11px 0; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none; color: var(--ui-text);
+  font: 400 14px/24px 'Segoe UI',sans-serif;
+}
+html[data-theme] .shell--modern .messenger-polls .messenger-poll-compose .messenger-poll-compose__options .messenger-poll-compose__option input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+html[data-theme] .messenger-poll-compose__option:focus-within {
+  border-radius: 7px;
+  background: var(--ui-active);
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
+}
+html[data-theme] .messenger-poll-compose__dot { width: 14px; height: 14px; justify-self: center; box-sizing: border-box; border: 1.5px solid var(--ui-muted); border-radius: 50%; }
+html[data-theme] .messenger-poll-compose__option button { width: 28px; height: 30px; min-height: 0; padding: 0; flex: 0 0 28px; color: var(--ui-muted); font: 400 22px/1 'Segoe UI',sans-serif; border: 0; border-radius: 5px; background: transparent; cursor: pointer; }
+html[data-theme] .messenger-poll-compose__anonymous { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+html[data-theme] .messenger-poll-compose__switch { position: relative; flex: 0 0 42px; width: 42px; height: 24px; min-height: 0; padding: 3px; border: 0; border-radius: 12px; background: #65798b; box-shadow: none; cursor: pointer; transition: background-color 160ms ease; }
+html[data-theme] .messenger-poll-compose__switch > span { display: block; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #0002; transform: translateX(0); transition: transform 160ms ease; }
+html[data-theme] .messenger-poll-compose__switch[aria-checked=true] { background: var(--ui-accent); }
+html[data-theme] .messenger-poll-compose__switch[aria-checked=true] > span { transform: translateX(18px); }
+html[data-theme] .messenger-poll-compose__switch:disabled { cursor: wait; opacity: .6; }
+html[data-theme] .messenger-poll-compose__anonymous > span { display: grid; gap: 3px; }
+html[data-theme] .messenger-poll-compose__anonymous strong { font-size: 14px; font-weight: 500; color: var(--ui-text); }
+html[data-theme] .messenger-poll-compose__anonymous small { font-size: 12px; color: var(--ui-muted); }
+html[data-theme] .messenger-poll-compose__actions { display: flex; justify-content: flex-end; align-items: center; gap: 18px; border-top: 1px solid var(--ui-line); padding-top: 16px; }
+html[data-theme] .messenger-poll-compose__actions .primary-button { width: auto; min-width: 130px; min-height: 40px; padding: 10px 16px; font-size: 14px; }
+
+html[data-theme] .messenger-poll-results { width: min(520px,calc(100vw - 32px)); max-height: min(720px,calc(100dvh - 48px)); padding: 0; border: 1px solid var(--ui-line); border-radius: 16px; color: var(--ui-text); background: var(--ui-surface); box-shadow: 0 18px 70px #0005; }
+.messenger-poll-results::backdrop { background: #0008; backdrop-filter: blur(3px); }
+html[data-theme] .messenger-poll-results > header { display: flex; align-items: flex-start; gap: 16px; justify-content: space-between; padding: 20px; border-bottom: 1px solid var(--ui-line); }
+html[data-theme] .messenger-poll-results h3 { margin: 0 0 7px; font-size: 18px; font-weight: 600; }
+html[data-theme] .messenger-poll-results header p { margin: 0; color: var(--ui-muted); font-size: 13px; line-height: 1.45; }
+html[data-theme] .messenger-poll-results header button { width: 30px; height: 30px; padding: 0; flex: 0 0 30px; border: 0; border-radius: 7px; color: var(--ui-muted); background: var(--ui-raised); cursor: pointer; font: 400 23px/1 'Segoe UI',sans-serif; }
+html[data-theme] .messenger-poll-results__body { padding: 0 20px 20px; }
+html[data-theme] .messenger-poll-results__body section { padding-top: 20px; }
+html[data-theme] .messenger-poll-results h4 { margin: 0 0 9px; font-size: 14px; font-weight: 500; line-height: 1.45; }
+html[data-theme] .messenger-poll-results h4 > span { display: inline-block; margin-left: 6px; color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+html[data-theme] .messenger-poll-results ul { padding: 0; margin: 0; list-style: none; }
+html[data-theme] .messenger-poll-results li { display: grid; gap: 3px; padding: 10px 0; border-bottom: 1px solid var(--ui-line); }
+html[data-theme] .messenger-poll-results li strong { font-size: 13px; font-weight: 500; }
+html[data-theme] .messenger-poll-results li span,.messenger-poll-results section > p { color: var(--ui-muted); font-size: 12px; margin: 0; }
+@media(max-width:600px) {
+  html[data-theme] .messenger-polls__header { gap: 8px; }
+  html[data-theme] .messenger-polls__header h2 { font-size: 20px; }
+  html[data-theme] .messenger-polls__create-button { font-size: 13px; padding: 7px 10px; }
+  html[data-theme] .messenger-poll,html[data-theme] .messenger-poll-compose { padding: 18px 16px 12px; }
+  html[data-theme] .messenger-poll__option { font-size: 14px; gap: 9px; }
+  html[data-theme] .messenger-poll__option-mark { flex-basis: 33px; font-size: 12px; }
+}
+@media(prefers-reduced-motion:reduce) { .messenger-poll__bar-track > span,.messenger-poll-compose__switch,.messenger-poll-compose__switch > span { transition: none !important; } }

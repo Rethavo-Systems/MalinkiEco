@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useMemo, useState } from 'react'
+import { ThemeSettings } from './ThemeSettings'
 import type { NotificationSettings, RemoteUser } from '../types'
 
 type AccountSettingsPanelProps = {
@@ -80,6 +81,7 @@ export function AccountSettingsPanel({
   const [fullName, setFullName] = useState(profile.fullName)
   const [phone, setPhone] = useState(profile.phone ?? '')
   const [settings, setSettings] = useState<NotificationSettings>(profile.notificationSettings)
+  const [settingsError, setSettingsError] = useState('')
 
   const isStaff = profile.role === 'ADMIN' || profile.role === 'MODERATOR'
   const toggles = useMemo(() => (isStaff ? [...BASE_TOGGLES, STAFF_TOGGLE] : BASE_TOGGLES), [isStaff])
@@ -91,24 +93,50 @@ export function AccountSettingsPanel({
     setSettings(profile.notificationSettings)
   }, [open, profile.fullName, profile.phone, profile.notificationSettings])
 
+  const panelRef = useRef<HTMLDivElement>(null)
+  const closePanel = useEffectEvent(onClose)
+  useEffect(() => {
+    if (!open) return
+    const previousFocus = document.activeElement as HTMLElement | null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const panel = panelRef.current
+    panel?.querySelector<HTMLElement>('button')?.focus()
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); closePanel(); return }
+      if (event.key !== 'Tab' || !panel) return
+      const controls = Array.from(panel.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href]')).filter(node => node.getClientRects().length)
+      const first = controls[0], last = controls[controls.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener('keydown', handleKey); previousFocus?.focus() }
+  }, [open])
+
   if (!open) return null
 
   const updateToggle = (key: keyof NotificationSettings, checked: boolean) => {
     const nextSettings = { ...settings, [key]: checked }
     setSettings(nextSettings)
-    void onUpdateNotificationSettings(nextSettings)
+    setSettingsError('')
+    void Promise.resolve(onUpdateNotificationSettings(nextSettings)).catch(() => {
+      setSettings(settings)
+      setSettingsError('Не удалось сохранить. Ваши прежние настройки восстановлены.')
+    })
   }
 
   return (
     <div className="settings-overlay" onClick={onClose}>
-      <div className="settings-panel" onClick={(event) => event.stopPropagation()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="account-settings-heading" className="settings-panel" onClick={(event) => event.stopPropagation()}>
         <div className="settings-panel__header">
-          <h3>Настройки</h3>
+          <h3 id="account-settings-heading">Настройки</h3>
           <button className="ghost-button" type="button" onClick={onClose}>
             Закрыть
           </button>
         </div>
 
+        <ThemeSettings />
         <section className="settings-panel__section">
           <h4>Изменение данных</h4>
           <p>Имя и телефон обновятся после одобрения модератором или администратором.</p>
@@ -131,7 +159,7 @@ export function AccountSettingsPanel({
         </section>
 
         <section className="settings-panel__section">
-          <h4>Push для веб-версии</h4>
+          <h4>Уведомления на этом устройстве</h4>
           <div className="settings-push-card">
             <div className="settings-push-card__copy">
               <strong>{webPushTitle}</strong>
@@ -147,6 +175,7 @@ export function AccountSettingsPanel({
 
         <section className="settings-panel__section">
           <h4>Уведомления</h4>
+          {settingsError && <p className="error-note" role="alert">{settingsError}</p>}
           <div className="settings-toggles">
             {toggles.map((toggle) => (
               <label key={toggle.key} className="settings-toggle-card" htmlFor={`settings-toggle-${toggle.key}`}>

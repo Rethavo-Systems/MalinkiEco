@@ -1,0 +1,196 @@
+/* Forms share the same quiet surfaces and strong focus states in both themes. */
+html { scrollbar-gutter: stable; }
+.payment-status-coin { margin-left: auto; display: flex; align-items: center; }
+.payment-status-coin svg { width: 23px; height: 23px; stroke: currentColor; fill: none; stroke-width: 1.5; }
+.payment-status-coin--debt { color: #d98691; }
+.payment-status-coin--credit { color: #82b6e4; }
+.payment-status-coin--clear { color: #83bba2; }
+html[data-theme=light] .payment-status-coin--debt { color: #a4394e; }
+html[data-theme=light] .payment-status-coin--credit { color: #2a689f; }
+html[data-theme=light] .payment-status-coin--clear { color: #29724f; }
+.payment-status-coin + .app-navigation__badge { margin-left: 3px; }
+html[data-theme] .shell--modern button.balance-chip {
+  cursor: pointer; text-align: left; font-family: inherit;
+  transition: border-color 150ms ease, filter 150ms ease;
+}
+html[data-theme] .shell--modern button.balance-chip:hover { filter: brightness(1.07); }
+html[data-theme] .shell--modern button.balance-chip:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+html[data-theme] .shell--modern .gate-open-button__main svg { width: 22px; height: 22px; stroke-width: 1.25; }
+@media(max-width:760px) {
+  html[data-theme] .shell--modern .brand-lockup { flex: 1 1 auto; min-width: 30px; overflow: hidden; }
+  html[data-theme] .shell--modern .brand-lockup > div:last-child { min-width: 0; }
+  html[data-theme] .shell--modern .brand-lockup h1 { max-width: 100%; }
+  html[data-theme] .shell--modern .topbar-actions { flex: 0 0 auto; }
+  html[data-theme] .shell--modern .gate-open-button { width: 56px; min-width: 56px; height: 60px; min-height: 60px; padding: 10px; }
+  html[data-theme] .shell--modern .gate-open-button__main { gap: 0; }
+  html[data-theme] .shell--modern .gate-open-button__main svg { width: 25px; height: 25px; }
+}
+@media(max-width:400px) {
+  html[data-theme] .shell--modern .topbar-actions,html[data-theme] .shell--modern .topbar-control-stack { gap: 4px; }
+  html[data-theme] .shell--modern button.balance-chip { width: 64px; min-width: 64px; height: 60px; padding: 8px; align-content: center; }
+  html[data-theme] .shell--modern .topbar-actions .balance-chip > span { display: none; }
+}
+@media(max-width:360px) {
+  html[data-theme] .shell--modern .brand-lockup > div:last-child { display: none; }
+}
+.app-menu-toggle__badge {
+  position: absolute; top: -3px; right: -7px; min-width: 18px; height: 18px;
+  padding: 0 4px; border-radius: 10px; display: grid; place-items: center;
+  background: #527da5; color: #fff; border: 2px solid var(--ui-side);
+  font-size: 10px; font-weight: 600; line-height: 1; box-sizing: border-box;
+  pointer-events: none;
+}
+html[data-theme] .shell--modern.shell--chat { padding: 0 26px 22px 250px; }
+.notice-symbol { display: grid; place-items: center; width: 26px; height: 26px; flex: 0 0 26px; border: 1px solid currentColor; border-radius: 50%; }
+html[data-theme] .notice-bar--error { border-color: #bd7480; }
+html[data-theme] .notice-bar--error .notice-symbol { color: #bd7480; }
+html[data-theme] .notice-bar--success .notice-symbol { color: #72a591; }
+@media(max-width:1100px) { html[data-theme] .shell--modern.shell--chat { padding-left: 232px; padding-right: 20px; } }
+@media(max-width:760px) { html[data-theme] .shell--modern.shell--chat { padding: 0 14px 14px; } }
+html[data-theme] .shell--modern .topbar,html[data-theme] .shell--modern.shell--chat .topbar {
+  box-sizing: border-box; width: 100%; max-width: none; min-height: 94px; height: 94px;
+  flex: 0 0 94px; margin: 0 0 18px; padding: 14px 0;
+}
+@media(max-width:760px) {
+  html[data-theme] .shell--modern .topbar,html[data-theme] .shell--modern.shell--chat .topbar {
+    min-height: 82px; height: 82px; flex-basis: 82px; padding: 10px 0 10px 46px; margin-bottom: 12px;
+  }
+}
+html[data-theme] :is(.events-section,.polls-section,.payments-section,.settings-panel) :is(input:not([type=checkbox]),textarea,select) {
+  box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px;
+  padding: 11px 14px; border: 1px solid var(--ui-line); border-radius: 10px;
+  background: var(--ui-bg); color: var(--ui-text); font: inherit; font-size: 14px; line-height: 1.5;
+}
+html[data-theme] :is(.events-section,.polls-section,.payments-section,.settings-panel) select {
+  appearance: none; padding-right: 40px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238491a3' stroke-width='1.6'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 14px center; background-repeat: no-repeat;
+}
+html[data-theme] :is(.events-section,.polls-section,.payments-section,.settings-panel) :is(input,textarea,select):focus-visible {
+  outline: 2px solid var(--ui-accent); outline-offset: 2px;
+}
+html[data-theme] :is(.poll-create,.payment-request-card,.settings-panel__section) { gap: 16px; }
+html[data-theme] .poll-create { display: grid; padding-top: 20px; }
+.event-template-chips,.poll-filter-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+html[data-theme] :is(.event-template-chips,.poll-filter-tabs) button {
+  border: 1px solid var(--ui-line); border-radius: 22px; background: var(--ui-raised);
+  color: var(--ui-muted); padding: 9px 15px; font: inherit; font-size: 13px; cursor: pointer;
+  transition: background .18s, border-color .18s, color .18s;
+}
+html[data-theme] :is(.event-template-chips,.poll-filter-tabs) button[aria-pressed=true] { background: var(--ui-active); border-color: var(--ui-accent); color: var(--ui-text); }
+html[data-theme] .event-template-field { display: grid; gap: 10px; font-size: 13px; color: var(--ui-muted); }
+.event-template-field small { font-size: inherit; opacity: .8; }
+html[data-theme] .event-choice-list { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+html[data-theme] .event-choice { padding: 16px 12px; border: 1px solid var(--ui-line); border-radius: 12px; background: var(--ui-raised); font-size: 14px; }
+html[data-theme] .event-choice.is-selected { background: var(--ui-active); border-color: var(--ui-accent); }
+html[data-theme] .poll-toolbar { display: grid; grid-template-columns: minmax(0,1fr) minmax(180px,.4fr); gap: 14px; margin-top: 16px; }
+html[data-theme] .poll-toolbar label,.payment-form-grid label { display: grid; gap: 7px; font-size: 13px; color: var(--ui-muted); min-width: 0; }
+html[data-theme] .poll-option-input { display: grid; grid-template-columns: minmax(0,1fr) 42px; gap: 8px; align-items: center; }
+html[data-theme] .poll-option-input button { width: 42px; height: 42px; min-height: 0; padding: 0; font-size: 22px; }
+html[data-theme] .poll-card { padding: 22px; border: 1px solid var(--ui-line); border-radius: 16px; }
+html[data-theme] .poll-card__header { gap: 12px; flex-wrap: wrap; }
+html[data-theme] .poll-option { position: relative; overflow: hidden; display: flex; justify-content: space-between; gap: 16px; padding: 14px 16px; border: 1px solid var(--ui-line); border-radius: 10px; background: var(--ui-bg); color: var(--ui-text); }
+.poll-option > span:not(.poll-option__bar),.poll-option > strong { position: relative; z-index: 1; }
+html[data-theme] .poll-option__bar { position: absolute; inset: 0 auto 0 0; background: var(--ui-active); }
+html[data-theme] .owners-grid { grid-auto-rows: 1fr; align-items: stretch; }
+html[data-theme] .owner-card { display: flex; flex-direction: column; min-width: 0; height: 100%; box-sizing: border-box; }
+html[data-theme] .owner-card h3 { min-height: 42px; padding-right: 24px; overflow-wrap: anywhere; }
+html[data-theme] .owner-card__contacts { min-height: 62px; font-size: 13px; color: var(--ui-muted); }
+.owner-card__contacts p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-theme] .owner-card__restriction { min-height: 20px; font-size: 12px; color: var(--ui-muted); margin: 8px 0 16px; }
+html[data-theme] .owner-card > .chat-actions { margin-top: auto; display: grid; grid-template-columns: 1fr; min-height: 132px; align-content: start; gap: 6px; }
+html[data-theme] .owner-card > .chat-actions button { min-height: 38px; padding: 8px 10px; font-size: 12px; }
+html[data-theme] .shell--modern .owner-card.is-critical-debt {
+  --critical-line: #bd526f;
+  border: 3px solid var(--critical-line);
+  box-shadow: inset 3px 0 0 var(--critical-line);
+  background: linear-gradient(125deg, #76263d40, transparent 75%),var(--ui-surface);
+}
+html[data-theme=light] .shell--modern .owner-card.is-critical-debt {
+  --critical-line: #9c2848;
+  background: linear-gradient(125deg, #f4dfe6, #fcf7f9 75%);
+}
+html[data-theme] .shell--modern .owner-card.is-critical-debt .owner-card__debt-alert {
+  color: #fff3f6;
+  background: #8d2f4b;
+  border: 2px solid var(--critical-line);
+  box-shadow: none;
+}
+html[data-theme] .shell--modern .owner-card.is-critical-debt .owner-card__restriction { color: #e8a3b5; font-weight: 600; }
+html[data-theme=light] .shell--modern .owner-card.is-critical-debt .owner-card__restriction { color: #942442; }
+html[data-theme] .charge-picker__list { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 10px; }
+html[data-theme] .charge-chip { position: relative; display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 8px 12px; padding: 16px; border: 1px solid var(--ui-line); border-radius: 12px; background: var(--ui-bg); cursor: pointer; }
+html[data-theme] .charge-chip.is-selected { border-color: var(--ui-accent); background: var(--ui-active); }
+.charge-chip input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.charge-chip:focus-within { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+html[data-theme] .charge-chip__check { width: 21px; height: 21px; border: 1px solid var(--ui-muted); border-radius: 7px; display: grid; place-items: center; background: transparent; }
+html[data-theme] .charge-chip.is-selected .charge-chip__check { background: var(--ui-accent); border-color: var(--ui-accent); }
+html[data-theme] .charge-chip__check-mark { display: none; width: 9px; height: 5px; border-left: 2px solid white; border-bottom: 2px solid white; transform: rotate(-45deg); margin-top: -3px; }
+html[data-theme] .charge-chip.is-selected .charge-chip__check-mark { display: block; }
+.charge-chip > strong { grid-column: 2; font-size: 17px; font-weight: 500; }
+.charge-chip small { display: block; color: var(--ui-muted); font-size: 12px; font-weight: 400; }
+.payment-plot-note { color: var(--ui-muted); font-size: 13px; line-height: 1.6; }
+html[data-theme] .settings-panel { max-width: 640px; }
+html[data-theme] .settings-panel__section { padding: 20px; border: 1px solid var(--ui-line); border-radius: 14px; background: var(--ui-surface); }
+html[data-theme] .settings-panel__section h4 { font-size: 16px; font-weight: 500; margin: 0 0 10px; }
+html[data-theme] .settings-toggle-card { border: 0; border-bottom: 1px solid var(--ui-line); border-radius: 0; background: transparent; padding: 14px 0; }
+html[data-theme] .settings-toggle-card__label { font-size: 14px; font-weight: 500; }
+html[data-theme] .settings-toggle-card__description { font-size: 12px; line-height: 1.5; }
+@media(max-width:640px) { html[data-theme] .event-choice-list { grid-template-columns: 1fr; } html[data-theme] .poll-toolbar { grid-template-columns: 1fr; } html[data-theme] .charge-picker__list { grid-template-columns: 1fr; } }
+@media(prefers-reduced-motion:reduce) { .event-template-chips button,.poll-filter-tabs button { transition: none; } }
+
+.payment-plot-picker { margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--ui-line); border-radius: 12px; }
+.payment-plot-picker legend { padding: 0 6px; color: var(--ui-text); font-size: 14px; font-weight: 500; }
+.payment-plot-picker label { display: inline-flex; align-items: center; gap: 8px; margin: 6px 18px 6px 0; cursor: pointer; font-size: 14px; }
+.payment-plot-picker input[type="checkbox"] { width: 18px; height: 18px; min-height: 0; accent-color: var(--ui-accent); }
+.payment-plot-picker p { color: var(--ui-muted); font-size: 13px; line-height: 1.5; margin: 8px 0 0; }
+
+html[data-theme] .charge-chip__title { justify-self: start; text-align: left; margin: 0; font-weight: 500; }
+html[data-theme] .charge-chip { text-align: left; justify-items: start; }
+
+/* Count badges use their own metrics instead of inheriting heading typography. */
+html[data-theme] .shell--modern :is(.alert-badge,.request-tab__count,.app-navigation__badge,.app-menu-toggle__badge) {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  font: normal 600 12px/1 "Segoe UI", Arial, sans-serif;
+  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: 0;
+  text-indent: 0;
+  text-align: center;
+  text-shadow: none;
+  box-shadow: none;
+  transform: none;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+html[data-theme] .shell--modern .alert-badge {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: #ff5277;
+  color: #fff;
+  font-size: 13px;
+}
+html[data-theme] .shell--modern :is(.request-tab__count,.app-navigation__badge) {
+  min-width: 21px;
+  height: 21px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: #527da5;
+  color: #fff;
+}
+html[data-theme=light] .shell--modern :is(.request-tab__count,.app-navigation__badge) { background: #386c9e; }
+html[data-theme] .shell--modern .app-menu-toggle__badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #527da5;
+  color: #fff;
+  font-size: 10px;
+}

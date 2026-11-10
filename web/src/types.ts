@@ -43,6 +43,7 @@ export type UserAvatar = {
 }
 
 export type CommunityEvent = {
+  closesAtClient?: number
   id: string
   title: string
   message: string
@@ -61,6 +62,7 @@ export type CommunityEvent = {
 }
 
 export type ChatMessage = {
+  reactions?: Record<string, string>
   id: string
   senderId: string
   senderName: string

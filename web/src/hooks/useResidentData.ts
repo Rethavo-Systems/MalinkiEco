@@ -105,10 +105,10 @@ function toManualPaymentRequest(item: QueryDocumentSnapshot<DocumentData>, statu
 export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
   const profileId = profile?.id ?? null
   const profileRole = profile?.role ?? null
-  const profilePlotKey = profile?.plots.map((plot) => plot.trim()).filter(Boolean).join('|') ?? ''
+  const profilePlotKey = (profile?.plots ?? []).map(plot => plot.trim()).filter(Boolean).join('|')
   const profilePaymentPlotIds = useMemo(
-    () => Array.from(new Set(profile?.plots.map((plot) => plot.trim()).filter(Boolean) ?? [])),
-    [profilePlotKey, profile?.plots],
+    () => Array.from(new Set(profilePlotKey.split('|').filter(Boolean))),
+    [profilePlotKey],
   )
   const [users, setUsers] = useState<RemoteUser[]>([])
   const [events, setEvents] = useState<CommunityEvent[]>([])
@@ -121,17 +121,11 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
   const [plotBalances, setPlotBalances] = useState<Map<string, number>>(new Map())
 
   useEffect(() => {
-    if (!firebaseSetup.ready || !db || !profileId || !profileRole) return
-
-    const activeDb = db
-    const isStaff = profileRole === 'ADMIN' || profileRole === 'MODERATOR'
-    // Events and chat drive global tab badges, so they must stay live regardless of the current tab.
+    if (!firebaseSetup.ready || !db || !profileId) return
     const needsEvents = true
     const needsChat = true
-    const needsOwners = activeTab === 'owners'
-    const needsPayments = activeTab === 'payments'
-    const needsLogs = activeTab === 'logs'
-
+    let unsubscribeEvents = () => {}
+    let unsubscribeChat = () => {}
     const usersQuery = query(collection(db, 'users'), orderBy('fullName', 'asc'))
 
     const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
@@ -141,33 +135,9 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
       setUsers(nextUsers)
     })
 
-    let unsubscribePlots = () => {}
-    let unsubscribeEvents = () => {}
-    let unsubscribeChat = () => {}
-    let unsubscribePaymentConfig = () => {}
-    let unsubscribeCommunityFunds = () => {}
-
-    if (needsOwners) {
-      unsubscribePlots = onSnapshot(
-        query(collection(db, PLOTS_COLLECTION), orderBy('sortOrder', 'asc')),
-        (snapshot) => {
-          const nextBalances = new Map<string, number>()
-          snapshot.docs.forEach((item) => {
-            const data = item.data()
-            const name = normalizePlotName(String(data.name ?? ''))
-            if (!name) return
-            nextBalances.set(name, Number(data.balance ?? 0))
-          })
-          setPlotBalances(nextBalances)
-        },
-      )
-    } else {
-      setPlotBalances(new Map())
-    }
-
     if (needsEvents) {
       unsubscribeEvents = onSnapshot(
-        query(collection(db, 'events'), orderBy('createdAt', 'desc')),
+        query(collection(db, 'events')),
         (snapshot) => {
           const nextEvents = snapshot.docs.map<CommunityEvent>((item) => {
             const data = item.data()
@@ -178,6 +148,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
               type: String(data.type ?? 'INFO') as EventType,
               amount: Number(data.amount ?? 0),
               isClosed: Boolean(data.isClosed ?? false),
+              closesAtClient: Number(data.closesAtClient ?? 0),
               isAnonymous: Boolean(data.isAnonymous ?? false),
               pollOptions: Array.isArray(data.pollOptions) ? data.pollOptions.map(String) : [],
               pollVotes:
@@ -211,6 +182,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
               senderPlotName: String(data.senderPlotName ?? ''),
               text: String(data.text ?? ''),
               attachments: parseChatAttachments(data.attachments),
+              reactions: data.reactions && typeof data.reactions === 'object' ? Object.fromEntries(Object.entries(data.reactions).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) : {},
               replyToMessageId: String(data.replyToMessageId ?? ''),
               replyToSenderName: String(data.replyToSenderName ?? ''),
               replyToSenderPlotName: String(data.replyToSenderPlotName ?? ''),
@@ -227,6 +199,41 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
       )
     } else {
       setChatMessages([])
+    }
+
+    return () => { unsubscribeUsers(); unsubscribeEvents(); unsubscribeChat() }
+  }, [profileId])
+
+  useEffect(() => {
+    if (!firebaseSetup.ready || !db || !profileId || !profileRole) return
+
+    const activeDb = db
+    const isStaff = profileRole === 'ADMIN' || profileRole === 'MODERATOR'
+    // Events and chat drive global tab badges, so they must stay live regardless of the current tab.
+    const needsOwners = activeTab === 'owners'
+    const needsPayments = activeTab === 'payments'
+    const needsLogs = activeTab === 'logs'
+
+    let unsubscribePlots = () => {}
+    let unsubscribePaymentConfig = () => {}
+    let unsubscribeCommunityFunds = () => {}
+
+    if (needsOwners) {
+      unsubscribePlots = onSnapshot(
+        query(collection(db, PLOTS_COLLECTION), orderBy('sortOrder', 'asc')),
+        (snapshot) => {
+          const nextBalances = new Map<string, number>()
+          snapshot.docs.forEach((item) => {
+            const data = item.data()
+            const name = normalizePlotName(String(data.name ?? ''))
+            if (!name) return
+            nextBalances.set(name, Number(data.balance ?? 0))
+          })
+          setPlotBalances(nextBalances)
+        },
+      )
+    } else {
+      setPlotBalances(new Map())
     }
 
     if (needsPayments) {
@@ -269,7 +276,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
 
     if (isStaff && (needsOwners || needsPayments)) {
       unsubscribePaymentRequests = onSnapshot(
-        query(collection(db, 'payment_requests'), orderBy('createdAt', 'desc')),
+        query(collection(db, 'payment_requests')),
         (snapshot) => {
           const nextRequests = snapshot.docs.map((item) => toManualPaymentRequest(item))
           setPaymentRequests(nextRequests)
@@ -286,17 +293,19 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
       )
     } else if (needsPayments) {
       const plotChunks = splitIntoChunks(profilePaymentPlotIds, 10)
+      // Include older requests without plotIds using their explicit owner ID.
+      const requestQueries = [
+        query(collection(activeDb, 'payment_requests'), where('userId', '==', profileId)),
+        ...plotChunks.map(plots => query(collection(activeDb, 'payment_requests'), where('plotIds', 'array-contains-any', plots))),
+      ]
 
-      if (plotChunks.length === 0) {
+      if (requestQueries.length === 0) {
         setPaymentRequests([])
       } else {
         const requestsByChunk = new Map<number, ManualPaymentRequest[]>()
-        const unsubscribeChunkListeners = plotChunks.map((plotChunk, chunkIndex) =>
+        const unsubscribeChunkListeners = requestQueries.map((requestQuery, chunkIndex) =>
           onSnapshot(
-            query(
-              collection(activeDb, 'payment_requests'),
-              where('plotIds', 'array-contains-any', plotChunk),
-            ),
+            requestQuery,
             (snapshot) => {
               requestsByChunk.set(
                 chunkIndex,
@@ -328,7 +337,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
 
     if (isStaff && needsOwners) {
       unsubscribeRegistrationRequests = onSnapshot(
-        query(collection(db, 'registration_requests'), orderBy('createdAt', 'desc')),
+        query(collection(db, 'registration_requests')),
         (snapshot) => {
           const nextRequests = snapshot.docs.map<RegistrationRequest>((item) => {
             const data = item.data()
@@ -418,10 +427,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
     }
 
     return () => {
-      unsubscribeUsers()
       unsubscribePlots()
-      unsubscribeEvents()
-      unsubscribeChat()
       unsubscribePaymentConfig()
       unsubscribeCommunityFunds()
       unsubscribePaymentRequests()

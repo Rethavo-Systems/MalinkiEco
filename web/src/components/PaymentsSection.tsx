@@ -1,6 +1,10 @@
+import { useCurrentTime } from '../hooks/useCurrentTime'
+import { isChargeClosed } from '../lib/chargeDeadline'
 import { useEffect, useMemo, useState } from 'react'
+import { reservedChargeIds, parsePaymentRubles } from '../lib/paymentSelection'
 import { normalizePlots } from '../lib/plotAccounts'
 import type { CommunityEvent, ManualPaymentRequest, PaymentTransferConfig, RemoteUser } from '../types'
+import './PaymentDetails.css'
 
 type PaymentDetail = {
   label: string
@@ -33,7 +37,7 @@ type PaymentsSectionProps = {
   onOpenPaymentLink: () => void
   onCopyAllPaymentDetails: () => void | Promise<void>
   onCopyDetail: (value: string, label: string) => void | Promise<void>
-  onSubmitPaymentRequest: (amount: number, events: CommunityEvent[], purpose: string) => void | Promise<void>
+  onSubmitPaymentRequest: (amount: number, events: CommunityEvent[], purpose: string, plots: string[]) => void | Promise<void>
   onSavePaymentConfig: (config: PaymentConfigDraft) => void | Promise<void>
 }
 
@@ -58,10 +62,6 @@ function paymentRequestEventIds(request: ManualPaymentRequest): string[] {
     .filter(Boolean)
 }
 
-function buildPlotLookup(plots: string[]): Set<string> {
-  return new Set([...plots.map((plot) => plot.trim()).filter(Boolean), ...normalizePlots(plots)])
-}
-
 export function PaymentsSection({
   profile,
   paymentConfig,
@@ -79,30 +79,22 @@ export function PaymentsSection({
   onSavePaymentConfig,
 }: PaymentsSectionProps) {
   const isStaff = profile.role === 'ADMIN' || profile.role === 'MODERATOR'
-  const hiddenChargeIds = useMemo(() => {
-    const profilePlotLookup = buildPlotLookup(profile.plots.length > 0 ? profile.plots : [profile.plotName])
-    const lockedChargeIds = new Set<string>()
+  const profilePlots = normalizePlots(profile.plots.length ? profile.plots : [profile.plotName])
+  const [chosenPlots, setChosenPlots] = useState<string[] | null>(null)
+  const paymentPlots = chosenPlots === null ? profilePlots : chosenPlots.filter(plot => profilePlots.includes(plot))
+  const paymentPlotKey = paymentPlots.join('|')
+  const hiddenChargeIds = useMemo(() => reservedChargeIds(paymentPlotKey.split('|').filter(Boolean), paymentRequests.map(request => ({
+    status: request.status,
+    plots: normalizePlots(request.plotIds.length ? request.plotIds : request.plotName.split(',')),
+    eventIds: paymentRequestEventIds(request),
+  }))), [paymentRequests, paymentPlotKey])
 
-    paymentRequests.forEach((request) => {
-      if (request.status !== 'PENDING' && request.status !== 'CONFIRMED') return
-
-      const requestPlotLookup = buildPlotLookup(request.plotIds.length > 0 ? request.plotIds : [request.plotName])
-      const samePlot = Array.from(requestPlotLookup).some((plot) => profilePlotLookup.has(plot))
-      if (!samePlot && request.userId !== profile.id) return
-
-      paymentRequestEventIds(request).forEach((eventId) => lockedChargeIds.add(eventId))
-    })
-
-    return lockedChargeIds
-  }, [paymentRequests, profile.id, profile.plotName, profile.plots])
-
-  const [locallyHiddenChargeIds, setLocallyHiddenChargeIds] = useState<string[]>([])
+  const now = useCurrentTime()
   const availableCharges = useMemo(() => {
-    const localHiddenChargeIds = new Set(locallyHiddenChargeIds)
     return events.filter(
-      (item) => item.type === 'CHARGE' && !item.isClosed && !hiddenChargeIds.has(item.id) && !localHiddenChargeIds.has(item.id),
+      (item) => item.type === 'CHARGE' && !isChargeClosed(item, now) && !hiddenChargeIds.has(item.id),
     )
-  }, [events, hiddenChargeIds, locallyHiddenChargeIds])
+  }, [events, hiddenChargeIds, now])
   const visibleDetails = useMemo(
     () => paymentDetails(paymentConfig).filter((item) => item.value.trim()),
     [paymentConfig, paymentDetails],
@@ -139,10 +131,10 @@ export function PaymentsSection({
     if (selectedCharges.length === 0) return
 
     const amountPerPlot = selectedCharges.reduce((sum, item) => sum + Number(item.amount ?? 0), 0)
-    const plotsCount = Math.max(profile.plots.length || 1, 1)
+    const plotsCount = paymentPlotKey.split('|').filter(Boolean).length
     setManualAmount(String(amountPerPlot * plotsCount))
     setPurpose(selectedCharges.map((item) => item.title).join(', '))
-  }, [availableCharges, profile.plots.length, selectedChargeIds])
+  }, [availableCharges, paymentPlotKey, selectedChargeIds])
 
   useEffect(() => {
     const availableChargeIds = new Set(availableCharges.map((item) => item.id))
@@ -151,11 +143,6 @@ export function PaymentsSection({
       return nextSelectedChargeIds.length === current.length ? current : nextSelectedChargeIds
     })
   }, [availableCharges])
-
-  useEffect(() => {
-    if (locallyHiddenChargeIds.length === 0) return
-    setLocallyHiddenChargeIds((current) => current.filter((eventId) => !hiddenChargeIds.has(eventId)))
-  }, [hiddenChargeIds, locallyHiddenChargeIds.length])
 
   const resetPaymentFeedback = () => {
     if (formError) setFormError('')
@@ -170,12 +157,16 @@ export function PaymentsSection({
   }
 
   const handleSubmit = async () => {
-    const amount = Number(manualAmount.replace(/[^\d]/g, ''))
+    const amount = parsePaymentRubles(manualAmount)
     const selectedCharges = availableCharges.filter((item) => selectedChargeIds.includes(item.id))
 
-    if (amount <= 0) {
+    if (paymentPlots.length === 0) {
+      setFormError('Выберите участок, за который перевели деньги.')
+      return
+    }
+    if (amount === null) {
       setFormSuccess('')
-      setFormError('Укажите сумму перевода больше нуля.')
+      setFormError('Укажите сумму перевода в целых рублях больше нуля.')
       return
     }
 
@@ -188,12 +179,13 @@ export function PaymentsSection({
     setFormError('')
     setSubmitting(true)
     try {
-      await onSubmitPaymentRequest(amount, selectedCharges, purpose.trim())
-      setLocallyHiddenChargeIds((current) => Array.from(new Set([...current, ...selectedCharges.map((item) => item.id)])))
+      await onSubmitPaymentRequest(amount, selectedCharges, purpose.trim(), paymentPlots)
       setSelectedChargeIds([])
       setManualAmount('')
       setPurpose('')
       setFormSuccess('Заявка на оплату отправлена. Дождитесь подтверждения модератора или администратора.')
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Не удалось отправить заявку. Попробуйте ещё раз.')
     } finally {
       setSubmitting(false)
     }
@@ -215,19 +207,22 @@ export function PaymentsSection({
     try {
       await onSavePaymentConfig(configDraft)
       setConfigExpanded(false)
+    } catch (error) {
+      setConfigError(error instanceof Error ? error.message : 'Не удалось сохранить реквизиты.')
     } finally {
       setConfigSaving(false)
     }
   }
 
   return (
-    <section className="panel">
+    <section className="panel payments-section">
       <div className="panel-heading">
         <p className="eyebrow accent">Раздел</p>
         <h2>Оплата</h2>
         <p>Общая сумма поселка, подтверждение переводов и банковские реквизиты для оплаты.</p>
       </div>
 
+      <div className="payment-summary">
       <article className="balance-card">
         <span className="eyebrow accent-soft">Общая сумма поселка</span>
         <strong>{communityFunds.toLocaleString('ru-RU')} ₽</strong>
@@ -240,11 +235,27 @@ export function PaymentsSection({
         <p>{balanceLabel(profile.balance)}</p>
       </article>
 
-      <div className="payment-request-card">
+      </div>
+
+      {profilePlots.length > 0 ? <div className="payment-request-card">
         <div className="panel-heading payment-request-card__heading">
           <h3>Я оплатил</h3>
           <p>Отправьте заявку, чтобы модератор или администратор подтвердил поступивший перевод.</p>
         </div>
+
+        {profilePlots.length > 1 && <fieldset className="payment-plot-picker">
+          <legend>За какие участки перевели деньги?</legend>
+          {profilePlots.map(plot => <label key={plot}>
+            <input type="checkbox" checked={paymentPlots.includes(plot)} disabled={submitting} onChange={() => {
+              setChosenPlots(paymentPlots.includes(plot) ? paymentPlots.filter(value => value !== plot) : [...paymentPlots, plot])
+              setSelectedChargeIds([])
+              setManualAmount('')
+              setPurpose('')
+              resetPaymentFeedback()
+            }} />{plot}
+          </label>)}
+          <p>Сумма распределится между выбранными участками. Если по сбору уже есть заявка для одного из них, выберите только оставшиеся участки.</p>
+        </fieldset>}
 
         {availableCharges.length > 0 && (
           <div className="charge-picker">
@@ -254,18 +265,20 @@ export function PaymentsSection({
                 const checked = selectedChargeIds.includes(item.id)
                 return (
                   <label key={item.id} className={`charge-chip ${checked ? 'is-selected' : ''}`}>
-                    <input type="checkbox" checked={checked} onChange={() => toggleCharge(item.id)} />
+                    <input type="checkbox" checked={checked} disabled={submitting || paymentPlots.length === 0} onChange={() => toggleCharge(item.id)} />
                     <span className="charge-chip__check" aria-hidden="true">
                       <span className="charge-chip__check-mark" />
                     </span>
                     <span className="charge-chip__title">{item.title}</span>
-                    <strong>{item.amount.toLocaleString('ru-RU')} ₽</strong>
+                    <strong>{item.amount.toLocaleString('ru-RU')} ₽ <small>за участок</small></strong>
                   </label>
                 )
               })}
             </div>
           </div>
         )}
+
+
 
         <div className="payment-form-grid">
           <label>
@@ -300,10 +313,10 @@ export function PaymentsSection({
         <button className="primary-button" type="button" onClick={() => void handleSubmit()} disabled={submitting}>
           {submitting ? 'Отправляем...' : 'Я оплатил'}
         </button>
-      </div>
+      </div> : <p className="payment-plot-note">К этому аккаунту не привязаны участки. Заявка «Я оплатил» доступна владельцам участков.</p>}
 
       {isStaff && (
-        <div className="poll-create-card">
+        <div className="poll-create-card payment-config-card">
           <div className="poll-create-card__header">
             <div>
               <h3>Добавить реквизиты</h3>
@@ -315,7 +328,7 @@ export function PaymentsSection({
           </div>
 
           {configExpanded && (
-            <div className="payment-form-grid">
+            <div className="payment-form-grid payment-config-grid">
               <label>
                 <span>Получатель</span>
                 <input value={configDraft.recipientName} onChange={(event) => updateConfigField('recipientName', event.target.value)} />
@@ -381,14 +394,14 @@ export function PaymentsSection({
             </button>
           </div>
 
-          <div className="details-grid">
+          <div className="details-grid payment-details-grid">
             {visibleDetails.map((item) => (
-              <article key={item.label} className="detail-card">
+              <article key={item.label} className="detail-card payment-detail-card">
                 <div className="detail-card__text">
                   <span>{item.label}</span>
                   <strong>{item.value}</strong>
                 </div>
-                <button className="copy-button" type="button" onClick={() => void onCopyDetail(item.value, item.label)}>
+                <button className="copy-button" type="button" aria-label={`Скопировать: ${item.label}`} onClick={() => void onCopyDetail(item.value, item.label)}>
                   Копировать
                 </button>
               </article>

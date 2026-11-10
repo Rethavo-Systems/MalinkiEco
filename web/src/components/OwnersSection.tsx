@@ -370,10 +370,13 @@ export function OwnersSection({
               <h3>{owner.fullName}</h3>
               <p>{formatPlots(owner)}</p>
               <span className="owner-role">{ownerRoleLabel(owner, roleLabel)}</span>
-              {isStaff && !owner.isPlaceholder && owner.phone && <p>{formatRussianPhone(owner.phone)}</p>}
-              {isStaff && !owner.isPlaceholder && owner.email && <p>{owner.email}</p>}
+              {isStaff && <div className="owner-card__contacts">
+                <p>{!owner.isPlaceholder && owner.phone ? formatRussianPhone(owner.phone) : 'Телефон не указан'}</p>
+                <p title={owner.email}>{!owner.isPlaceholder && owner.email ? owner.email : 'Почта не указана'}</p>
+              </div>}
               <strong>{owner.balance.toLocaleString('ru-RU')} ₽</strong>
-              <span>{balanceLabel(owner.balance)}</span>
+              <span className="owner-balance-status">{balanceLabel(owner.balance)}</span>
+              <p className="owner-card__restriction">{isStaff && hasCriticalDebt ? (owner.role === 'ADMIN' ? 'Критическая задолженность' : 'Открытие ворот ограничено') : '\u00a0'}</p>
               {isStaff && (
                 <div className="chat-actions">
                   <button

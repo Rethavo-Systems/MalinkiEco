@@ -1,5 +1,7 @@
 ﻿import { useState, type FormEvent } from 'react'
 import type { AuthFormState, AuthMode } from '../types'
+import { PasswordRecovery } from './PasswordRecovery'
+import { ThemeSettings } from './ThemeSettings'
 import { SiteFooter } from './SiteFooter'
 
 type AuthScreenProps = {
@@ -35,10 +37,11 @@ export function AuthScreen({
   onVerifyCode,
   onSubmit,
 }: AuthScreenProps) {
+  const [recovering, setRecovering] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
   return (
-    <div className="shell">
+    <div className="shell access-shell">
       <div className="ambient ambient-left" />
       <div className="ambient ambient-right" />
 
@@ -49,21 +52,13 @@ export function AuthScreen({
               <p className="eyebrow accent">MalinkiEco</p>
               <span className="brand-badge">WEB</span>
             </div>
-            <h1>Веб-доступ для собственников</h1>
-            <p className="hero-copy">
-              Веб-версия предоставляет доступ к основным разделам системы: объявлениям, общему чату,
-              опросам, оплате и списку собственников. Сервис рассчитан на работу со смартфонов,
-              планшетов и компьютеров.
-            </p>
-            <ul className="feature-list">
-              <li>Объявления и события поселка</li>
-              <li>Общий чат собственников</li>
-              <li>Опросы и голосование</li>
-              <li>Баланс, оплата и реквизиты</li>
-            </ul>
+            <h1>Личный кабинет</h1>
+            <p className="hero-copy">Объявления, чат, голосования и расчёты посёлка Малинки.</p>
+            <ThemeSettings />
           </div>
 
           <div className="auth-box">
+            {recovering ? <PasswordRecovery initialEmail={form.login} onBack={() => setRecovering(false)} /> : <>
             <div className="auth-switch">
               <button
                 className={`auth-switch__button ${mode === 'login' ? 'is-active' : ''}`}
@@ -156,7 +151,7 @@ export function AuthScreen({
                     aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
                     aria-pressed={showPassword}
                   >
-                    {showPassword ? 'Скрыть' : 'Показать'}
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" />{showPassword && <path d="m4 3 16 18" />}</svg>
                   </button>
                 </div>
               </label>
@@ -235,7 +230,9 @@ export function AuthScreen({
                     ? 'Отправляем заявку...'
                     : 'Отправить заявку'}
               </button>
+              {mode === 'login' && <button type="button" className="auth-recovery-link" onClick={() => setRecovering(true)}>Забыли пароль?</button>}
             </form>
+            </> }
           </div>
         </div>
       </section>

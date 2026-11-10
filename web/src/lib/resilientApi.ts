@@ -6,6 +6,7 @@ type ApiEndpointConfig = {
 
 type ResilientFetchOptions = {
   retryOnNetworkError?: boolean
+  retryOnStatuses?: number[]
   timeoutMs?: number
 }
 
@@ -195,6 +196,19 @@ export async function resilientApiFetch(
     // Retry those responses, but keep genuine JSON application errors intact.
     if (!response.ok && !contentType.includes('application/json')) {
       throw new Error(`Endpoint returned a non-API response: ${response.status}`)
+    }
+
+    if (options.retryOnStatuses?.includes(response.status)) {
+      const remainingCandidates = uniqueCandidates(config.candidates).filter(candidate => candidate !== firstBaseUrl)
+      if (remainingCandidates.length > 0) {
+        invalidateApiEndpoint(config.cacheKey)
+        try {
+          return await resilientApiFetch({ ...config, candidates: remainingCandidates }, path, init, options)
+        } catch {
+          // An older reachable service is still useful when newer routes are unreachable.
+          return response
+        }
+      }
     }
 
     return response

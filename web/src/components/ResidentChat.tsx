@@ -1,14 +1,18 @@
+import { ChatReaders } from './ChatReaders'
+import { canReadVisibleContent } from '../lib/readVisibility'
 import { createPortal } from 'react-dom'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CHAT_FILE_MAX_COUNT,
   downloadChatAttachment,
-  downloadChatAttachmentToDevice,
   validateChatFile,
 } from '../lib/chatFilesApi'
 import { useAvatarObjectUrl } from '../hooks/useAvatarObjectUrl'
 import type { UserAvatar } from '../types'
+import { ChatFormatInput, ChatFormattedText } from './ChatFormatting'
+import { ChatAttachments } from './ChatAttachments'
 import './ResidentChat.css'
+import './ResidentChatMessenger.css'
 
 export type ResidentChatProfile = {
   id: string
@@ -20,6 +24,7 @@ export type ResidentChatProfile = {
 }
 
 export type ResidentChatUser = {
+  lastChatReadAt?: number
   id: string
   fullName: string
   plotName: string
@@ -28,6 +33,7 @@ export type ResidentChatUser = {
 }
 
 export type ResidentChatMessage = {
+  reactions?: Record<string, string>
   id: string
   senderId: string
   senderName: string
@@ -69,9 +75,12 @@ type ResidentChatProps = {
   ) => Promise<void>
   onSaveEdit: (messageId: string, text: string) => Promise<void>
   onDelete: (message: ResidentChatMessage) => Promise<void>
+  onReact?: (messageId: string, emoji: string) => Promise<void>
   onTogglePin: (message: ResidentChatMessage) => Promise<void>
   onMarkRead: (latestSeen: number) => Promise<void>
   activationKey?: number
+  readingBlocked?: boolean
+  loadAttachment?: (attachment: ResidentChatAttachment) => Promise<Blob>
 }
 
 type ChatMenuState = {
@@ -97,8 +106,8 @@ function chatInitials(value: string): string {
   return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase()
 }
 
-const MENU_WIDTH = 196
-const MENU_HEIGHT = 184
+const MENU_WIDTH = 224
+const MENU_HEIGHT = 354
 const MENU_GAP = 10
 const EVERYONE_LABEL = '@все'
 
@@ -111,14 +120,25 @@ export function ResidentChat({
   onSaveEdit,
   onDelete,
   onTogglePin,
+  onReact,
   onMarkRead,
   activationKey = 0,
+  readingBlocked = false,
+  loadAttachment = downloadChatAttachment,
 }: ResidentChatProps) {
+  const [readersMessage, setReadersMessage] = useState<ResidentChatMessage | null>(null)
+  const [actionError, setActionError] = useState('')
+  const [reactionBusy, setReactionBusy] = useState(false)
+  const [search, setSearch] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [emojiOpen, setEmojiOpen] = useState(false)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [replyingTo, setReplyingTo] = useState<ResidentChatMessage | null>(null)
   const [editingId, setEditingId] = useState('')
   const [editingText, setEditingText] = useState('')
+  const selectedMenuText = useRef('')
+  const menuReturnFocus = useRef<HTMLElement | null>(null)
   const [menu, setMenu] = useState<ChatMenuState | null>(null)
   const [pinnedCursor, setPinnedCursor] = useState(0)
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false)
@@ -158,8 +178,10 @@ export function ResidentChat({
   )
 
   const markLatestAsRead = () => {
+    const list = listRef.current
+    if (readingBlocked || !canReadVisibleContent() || !list || list.scrollHeight - list.scrollTop - list.clientHeight > 72) return
     if (latestForeignTimestamp > 0) {
-      void onMarkRead(latestForeignTimestamp)
+      void onMarkRead(latestForeignTimestamp).catch(() => undefined)
     }
   }
 
@@ -210,7 +232,7 @@ export function ResidentChat({
 
   useEffect(() => {
     markLatestAsRead()
-  }, [latestForeignTimestamp])
+  }, [latestForeignTimestamp, readingBlocked])
 
   useEffect(() => {
     const handleFocus = () => markLatestAsRead()
@@ -222,12 +244,14 @@ export function ResidentChat({
 
     window.addEventListener('focus', handleFocus)
     document.addEventListener('visibilitychange', handleVisibility)
+    document.addEventListener('close', handleFocus, true)
 
     return () => {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibility)
+      document.removeEventListener('close', handleFocus, true)
     }
-  }, [latestForeignTimestamp])
+  }, [latestForeignTimestamp, readingBlocked])
 
   useEffect(() => {
     const list = listRef.current
@@ -238,7 +262,8 @@ export function ResidentChat({
     const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
     const shouldStickToBottom = distanceToBottom < 72
 
-    if (!isSameLastMessage || shouldStickToBottom) {
+    const latestIsMine = messages.at(-1)?.senderId === profile.id
+    if (!previousLastMessageIdRef.current || shouldStickToBottom || (!isSameLastMessage && latestIsMine)) {
       stickToLatestRef.current = true
       requestAnimationFrame(() => {
         list.scrollTo({ top: list.scrollHeight, behavior: isSameLastMessage ? 'smooth' : 'auto' })
@@ -251,7 +276,7 @@ export function ResidentChat({
     }
 
     previousLastMessageIdRef.current = lastMessageId
-  }, [messages, latestForeignTimestamp])
+  }, [messages, latestForeignTimestamp, profile.id])
 
   useEffect(() => {
     if (activationKey <= 0) return
@@ -263,9 +288,11 @@ export function ResidentChat({
   useEffect(() => {
     if (!menu) return
 
+    const frame = requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.resident-chat__menu button:not(:disabled)')?.focus())
     const closeMenu = () => setMenu(null)
     const closeByEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        menuReturnFocus.current?.focus()
         setMenu(null)
       }
     }
@@ -275,6 +302,7 @@ export function ResidentChat({
     window.addEventListener('keydown', closeByEscape)
 
     return () => {
+      cancelAnimationFrame(frame)
       window.removeEventListener('click', closeMenu)
       window.removeEventListener('contextmenu', closeMenu)
       window.removeEventListener('keydown', closeByEscape)
@@ -363,10 +391,13 @@ export function ResidentChat({
   const openContextMenu = (event: React.MouseEvent<HTMLElement>, message: ResidentChatMessage) => {
     event.preventDefault()
     event.stopPropagation()
-    openMenuAt(message, event.currentTarget.getBoundingClientRect(), message.senderId === profile.id)
+    menuReturnFocus.current = event.currentTarget
+    selectedMenuText.current = window.getSelection()?.toString() ?? ''
+    setMenu({ message, x: Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_WIDTH - 8)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - MENU_HEIGHT - 8)) })
   }
 
   const openTouchMenu = (element: HTMLElement, message: ResidentChatMessage) => {
+    selectedMenuText.current = ''
     openMenuAt(message, element.getBoundingClientRect(), message.senderId === profile.id)
   }
 
@@ -560,6 +591,15 @@ export function ResidentChat({
     list.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
   }
 
+  const reactToMessage = async (messageId: string, emoji: string) => {
+    if (!onReact || reactionBusy) return
+    setReactionBusy(true)
+    setActionError('')
+    try { await onReact(messageId, emoji); setMenu(null) }
+    catch { setActionError('Не удалось сохранить реакцию. Попробуйте ещё раз.') }
+    finally { setReactionBusy(false) }
+  }
+
   const readStatusLabel = (message: ResidentChatMessage) => {
     if (message.senderId !== profile.id) return ''
     return message.createdAtClient <= readerCutoff ? '✓✓' : '✓'
@@ -567,6 +607,13 @@ export function ResidentChat({
 
   return (
     <section ref={rootRef} className="panel resident-chat" onClick={() => setMenu(null)}>
+      <header className="resident-chat__header">
+        <div className="resident-chat__heading"><strong>Соседи · Малинки</strong><span>{users.length} {users.length % 10 === 1 && users.length % 100 !== 11 ? 'участник' : [2, 3, 4].includes(users.length % 10) && ![12, 13, 14].includes(users.length % 100) ? 'участника' : 'участников'} · общий чат</span></div>
+        <button className="resident-chat__tool" aria-label="Поиск по сообщениям" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); setSearch('') }}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
+        </button>
+      </header>
+      {searchOpen && <div className="resident-chat__search"><input autoFocus aria-label="Найти сообщение" placeholder="Поиск по сообщениям и участникам" value={search} onChange={event => setSearch(event.target.value)} /><button onClick={() => { setSearchOpen(false); setSearch('') }}>Закрыть</button></div>}
       {activePinnedMessage && (
         <button
           className="resident-chat__pinned"
@@ -598,24 +645,32 @@ export function ResidentChat({
           updateScrollToLatestButton(event.currentTarget)
         }}
       >
+        {search && !messages.some(message => `${message.text} ${message.senderName}`.toLocaleLowerCase('ru').includes(search.toLocaleLowerCase('ru'))) && <div className="resident-chat__empty">Ничего не найдено. Попробуйте другое слово.</div>}
         {messages.length === 0 ? (
           <div className="resident-chat__empty">Сообщений пока нет</div>
         ) : (
-          messages.map((message) => {
+          messages.filter(message => !search || `${message.text} ${message.senderName}`.toLocaleLowerCase('ru').includes(search.toLocaleLowerCase('ru'))).map((message, index, visibleMessages) => {
             const isMine = message.senderId === profile.id
             const isEditing = editingId === message.id
             const mentionedMe = message.mentionedUserIds.includes(profile.id)
             const senderAvatar = avatarByUserId.get(message.senderId) ?? null
+            const previous = visibleMessages[index - 1]
+            const newDay = !previous || new Date(previous.createdAtClient).toDateString() !== new Date(message.createdAtClient).toDateString()
+            const grouped = !newDay && previous.senderId === message.senderId && message.createdAtClient - previous.createdAtClient < 300_000
 
             return (
+              <Fragment key={message.id}>
+              {newDay && <div className="resident-chat__date"><span>{new Intl.DateTimeFormat('ru', {day:'numeric', month:'long'}).format(message.createdAtClient)}</span></div>}
               <div
                 id={`chat-message-${message.id}`}
                 key={message.id}
-                className={`resident-chat__message-row ${isMine ? 'is-mine' : 'is-other'}`}
+                className={`resident-chat__message-row ${isMine ? 'is-mine' : 'is-other'} ${grouped ? 'is-grouped' : ''}`}
               >
                 {!isMine && <ChatMessageAvatar name={message.senderName} avatar={senderAvatar} />}
                 <article
                   className={`resident-chat__bubble ${isMine ? 'is-mine' : 'is-other'} ${message.isPinned ? 'is-pinned' : ''} ${mentionedMe ? 'is-mentioned' : ''}`}
+                  tabIndex={0}
+                  onKeyDown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); menuReturnFocus.current = event.currentTarget; selectedMenuText.current = ''; openMenuAt(message, event.currentTarget.getBoundingClientRect(), isMine) } }}
                   onContextMenu={(event) => openContextMenu(event, message)}
                   onTouchStart={(event) => startLongPress(event, message)}
                   onTouchEnd={finishLongPress}
@@ -627,12 +682,11 @@ export function ResidentChat({
                     {message.senderName}
                     {message.senderPlotName ? ` · ${message.senderPlotName}` : ''}
                   </span>
-                  <span className="resident-chat__time">{formatTime(message.createdAtClient)}</span>
                 </div>
 
                 {isEditing ? (
                   <div className="resident-chat__edit">
-                    <textarea value={editingText} onChange={(event) => setEditingText(event.target.value)} rows={3} />
+                    <ChatFormatInput value={editingText} onValueChange={setEditingText} rows={3} aria-label="Редактировать сообщение" />
                     <div className="resident-chat__edit-actions">
                       <button className="primary-button" onClick={() => void handleSaveEdit()}>
                         Сохранить
@@ -660,15 +714,13 @@ export function ResidentChat({
                       </button>
                     )}
 
-                    {message.text ? <p className="resident-chat__text">{message.text}</p> : null}
-
                     {message.attachments.length > 0 && (
-                      <div className="resident-chat__attachments">
-                        {message.attachments.map((attachment) => (
-                          <ChatAttachmentCard key={attachment.id} attachment={attachment} />
-                        ))}
-                      </div>
+                      <ChatAttachments attachments={message.attachments} loadAttachment={loadAttachment} />
                     )}
+
+
+                    {message.text ? <p className="resident-chat__text"><ChatFormattedText text={message.text} /></p> : null}
+                    {Object.values(message.reactions ?? {}).length > 0 && <div className="chat-reactions">{[...new Set(Object.values(message.reactions ?? {}))].map(emoji => <button key={emoji} type="button" aria-label={`Реакция ${emoji}`} aria-pressed={message.reactions?.[profile.id] === emoji} disabled={reactionBusy || !onReact} onClick={() => void reactToMessage(message.id, emoji)}>{emoji}<span>{Object.values(message.reactions ?? {}).filter(value => value === emoji).length}</span></button>)}</div>}
 
                     <div className="resident-chat__footer">
                       <span className="resident-chat__flags">
@@ -676,13 +728,14 @@ export function ResidentChat({
                         {message.updatedAtClient > 0 && <span className="resident-chat__flag">изменено</span>}
                         {message.isPinned && <span className="resident-chat__flag">закреплено сверху</span>}
                       </span>
-                      {isMine && <span className="resident-chat__ticks">{readStatusLabel(message)}</span>}
+                      <span className="resident-chat__delivery"><span className="resident-chat__time">{formatTime(message.createdAtClient)}</span>{isMine && <button type="button" className="resident-chat__ticks" onClick={() => setReadersMessage(message)} title="Кто прочитал" aria-label={readStatusLabel(message) === '✓✓' ? 'Прочитано' : 'Отправлено'}><svg viewBox="0 0 24 16" aria-hidden="true"><path d="m2 8 4 4L16 2" />{readStatusLabel(message) === '✓✓' && <path d="m10 10 2 2L22 2" />}</svg></button>}</span>
                     </div>
                   </>
                 )}
                 </article>
                 {isMine && <ChatMessageAvatar name={message.senderName} avatar={senderAvatar} />}
               </div>
+              </Fragment>
             )
           })
         )}
@@ -748,11 +801,18 @@ export function ResidentChat({
             </button>
 
             <div className="resident-chat__input-wrap">
-              <textarea
-                ref={textareaRef}
+              <ChatFormatInput
+                textareaRef={textareaRef}
                 value={input}
-                onChange={(event) => setInput(event.target.value)}
+                onValueChange={setInput}
                 placeholder="Сообщение"
+                aria-label="Сообщение"
+                onKeyDown={event => {
+                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && window.innerWidth > 640) {
+                    event.preventDefault()
+                    void handleSend().catch(() => undefined)
+                  }
+                }}
                 rows={1}
               />
 
@@ -795,9 +855,11 @@ export function ResidentChat({
               )}
             </div>
 
+            <button className="resident-chat__emoji-button" aria-label="Добавить эмодзи" aria-expanded={emojiOpen} onClick={() => setEmojiOpen(!emojiOpen)}>☺</button>
+            {emojiOpen && <div className="resident-chat__emojis">{['😊','👍','❤️','👋','🌿','🎉','🙏','☀️'].map(emoji => <button key={emoji} onClick={() => {setInput(current => current + emoji); setEmojiOpen(false); textareaRef.current?.focus()}}>{emoji}</button>)}</div>}
             <button
               className="resident-chat__send-button"
-              onClick={() => void handleSend()}
+              onClick={() => void handleSend().catch(() => undefined)}
               disabled={sending || (!input.trim() && selectedFiles.length === 0)}
               aria-label="Отправить сообщение"
               title="Отправить сообщение"
@@ -819,41 +881,65 @@ export function ResidentChat({
         </div>
       </div>
 
+      {readersMessage && <ChatReaders message={readersMessage} users={users} onClose={() => setReadersMessage(null)} />}
+      {actionError && <div className="chat-action-error" role="alert">{actionError}<button onClick={() => setActionError('')}>Закрыть</button></div>}
       {menu &&
         createPortal(
           <div
             className="resident-chat__menu"
+            role="menu" aria-label="Действия с сообщением"
+            onKeyDown={event => {
+              const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+              const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); buttons[(index + (event.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length]?.focus() }
+            }}
             style={{ left: menu.x, top: menu.y }}
             onClick={(event) => event.stopPropagation()}
           >
-            <button className="resident-chat__menu-item" onClick={() => startReply(menu.message)}>
-              Ответить
+            {onReact && <div className="chat-reaction-picker" aria-label="Добавить реакцию">{['👍','❤️','😂','🎉','🙏','👎'].map(emoji => <button key={emoji} type="button" aria-label={`Поставить ${emoji}`} disabled={reactionBusy} onClick={() => void reactToMessage(menu.message.id, emoji)}>{emoji}</button>)}</div>}
+            <button role="menuitem" className="resident-chat__menu-item" onClick={async () => { try { await navigator.clipboard.writeText(selectedMenuText.current || menu.message.text); setMenu(null) } catch { setActionError('Не удалось скопировать текст.') } }}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h12v13H8z M16 8V3H3v13h5" /></svg> Копировать текст
+            </button>
+            <button role="menuitem" className="resident-chat__menu-item" onClick={() => startReply(menu.message)}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 18v-5a5 5 0 0 0-5-5H4 M9 3 4 8l5 5" /></svg> Ответить
             </button>
             <button
-              className="resident-chat__menu-item"
+              role="menuitem" className="resident-chat__menu-item"
               onClick={() => startEdit(menu.message)}
               disabled={menu.message.senderId !== profile.id}
             >
-              Редактировать
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16 11-11 4 4L8 20H4z M13 7l4 4" /></svg> Редактировать
             </button>
+            <button role="menuitem" className="resident-chat__menu-item" onClick={() => { setReadersMessage(menu.message); setMenu(null) }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg> Кто прочитал</button>
+            {menu.message.senderId === profile.id && <button role="menuitem" className="resident-chat__menu-item" onClick={() => {
+              const target = menu.message
+              startEdit(target)
+              requestAnimationFrame(() => {
+                const input = document.querySelector<HTMLTextAreaElement>(`#chat-message-${CSS.escape(target.id)} textarea`)
+                if (!input) return
+                const found = selectedMenuText.current ? target.text.indexOf(selectedMenuText.current) : -1
+                input.focus()
+                input.setSelectionRange(found >= 0 ? found : 0, found >= 0 ? found + selectedMenuText.current.length : target.text.length)
+              })
+            }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h6a4 4 0 0 1 0 8H7z M7 11h7a5 5 0 0 1 0 10H7z" /></svg> Форматировать…</button>}
             <button
-              className="resident-chat__menu-item"
+              role="menuitem" className="resident-chat__menu-item"
               onClick={async () => {
                 await onTogglePin(menu.message)
                 setMenu(null)
               }}
             >
-              {menu.message.isPinned ? 'Открепить' : 'Закрепить'}
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 3 8 0-1 6 4 4H5l4-4z M12 13v8" /></svg> {menu.message.isPinned ? 'Открепить' : 'Закрепить'}
             </button>
             <button
-              className="resident-chat__menu-item is-danger"
+              role="menuitem" className="resident-chat__menu-item is-danger"
               onClick={async () => {
                 await onDelete(menu.message)
                 setMenu(null)
               }}
               disabled={menu.message.senderId !== profile.id}
             >
-              Удалить
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16 M9 6V3h6v3 M6 6l1 15h10l1-15 M10 10v7 M14 10v7" /></svg> Удалить
             </button>
           </div>,
           document.body,
@@ -869,105 +955,6 @@ function ChatMessageAvatar({ name, avatar }: { name: string; avatar: UserAvatar 
     <span className="resident-chat__avatar" aria-hidden="true">
       {avatarUrl ? <img src={avatarUrl} alt="" loading="lazy" /> : <span>{chatInitials(name)}</span>}
     </span>
-  )
-}
-
-function ChatAttachmentCard({ attachment }: { attachment: ResidentChatAttachment }) {
-  const cardRef = useRef<HTMLButtonElement | null>(null)
-  const [previewUrl, setPreviewUrl] = useState('')
-  const [previewFailed, setPreviewFailed] = useState(false)
-  const [previewRequested, setPreviewRequested] = useState(false)
-  const [previewRetryAttempt, setPreviewRetryAttempt] = useState(0)
-  const isImage = attachment.kind === 'image'
-
-  useEffect(() => {
-    if (!isImage) return
-
-    const target = cardRef.current
-    if (!target || typeof IntersectionObserver === 'undefined') {
-      setPreviewRequested(true)
-      return
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry?.isIntersecting) return
-        setPreviewRequested(true)
-        observer.disconnect()
-      },
-      { rootMargin: '180px' },
-    )
-    observer.observe(target)
-
-    return () => observer.disconnect()
-  }, [isImage])
-
-  useEffect(() => {
-    if (!isImage || !previewRequested) return
-
-    let disposed = false
-    let objectUrl = ''
-    let retryTimer = 0
-    setPreviewFailed(false)
-    downloadChatAttachment(attachment)
-      .then((blob) => {
-        if (disposed) return
-        objectUrl = URL.createObjectURL(blob)
-        setPreviewUrl(objectUrl)
-      })
-      .catch(() => {
-        if (disposed) return
-        if (previewRetryAttempt < 2) {
-          retryTimer = window.setTimeout(() => {
-            setPreviewRetryAttempt((current) => current + 1)
-          }, 700 + previewRetryAttempt * 900)
-          return
-        }
-        setPreviewFailed(true)
-      })
-
-    return () => {
-      disposed = true
-      if (retryTimer) {
-        window.clearTimeout(retryTimer)
-      }
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [attachment, isImage, previewRequested, previewRetryAttempt])
-
-  const handleDownload = async () => {
-    try {
-      await downloadChatAttachmentToDevice(attachment)
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Не удалось скачать файл.')
-    }
-  }
-
-  return (
-    <button
-      ref={cardRef}
-      className={`resident-chat__attachment is-${attachment.kind}`}
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation()
-        void handleDownload()
-      }}
-      onContextMenu={(event) => event.preventDefault()}
-    >
-      {isImage ? (
-        previewUrl ? (
-          <img src={previewUrl} alt={attachment.name} loading="lazy" draggable={false} />
-        ) : (
-          <span className="resident-chat__attachment-icon">{previewFailed ? '!' : 'IMG'}</span>
-        )
-      ) : (
-        <span className="resident-chat__attachment-icon">{attachment.kind === 'video' ? 'VID' : 'FILE'}</span>
-      )}
-      <span className="resident-chat__attachment-info">
-        <strong>{attachment.name}</strong>
-        <small>{formatFileSize(attachment.size)}</small>
-      </span>
-    </button>
   )
 }
 

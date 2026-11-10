@@ -3,9 +3,12 @@ import type { CommunityEvent, NotificationSettings, PaymentTransferConfig, Remot
 
 export function extractCreatedAt(createdAt: unknown, fallback: unknown): number {
   if (createdAt && typeof createdAt === 'object' && 'seconds' in createdAt) {
-    return Number((createdAt as { seconds: number }).seconds) * 1000
+    const timestamp = createdAt as { seconds: unknown; nanoseconds?: unknown }
+    const milliseconds = Number(timestamp.seconds) * 1000 + Number(timestamp.nanoseconds ?? 0) / 1_000_000
+    if (Number.isFinite(milliseconds)) return milliseconds
   }
-  return Number(fallback ?? 0)
+  const fallbackMilliseconds = Number(fallback ?? 0)
+  return Number.isFinite(fallbackMilliseconds) ? fallbackMilliseconds : 0
 }
 
 export function normalizeNotificationSettings(data: unknown): NotificationSettings {

@@ -1,19 +1,20 @@
-﻿import {
+import { isChargeClosed, validateChargeDeadline } from './chargeDeadline'
+import {
   addDoc,
-  arrayUnion,
   collection,
   deleteDoc,
   doc,
-  getDoc,
   getDocs,
   runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
-  writeBatch,
   type Firestore,
+  type Transaction,
+  type DocumentSnapshot,
 } from 'firebase/firestore'
 import { push, ref, set, type Database } from 'firebase/database'
+import { getAuth } from 'firebase/auth'
 import type {
   ChatAttachment,
   ChatMessage,
@@ -41,6 +42,7 @@ import {
 import { auth, rtdb } from './firebase'
 
 type EventDraft = {
+  closesAtClient?: number
   title: string
   message: string
   type: EventType
@@ -124,6 +126,23 @@ async function enqueueNotificationJob(
   }
 
   const createdAtClient = Date.now()
+  const localWorker = import.meta.env?.DEV ? String(import.meta.env.VITE_LOCAL_NOTIFICATION_WORKER_URL ?? '').trim() : ''
+  if (localWorker) {
+    const user = getAuth(db.app).currentUser
+    if (!user) throw new Error('Войдите в аккаунт для отправки уведомлений.')
+    const url = new URL(localWorker)
+    if (url.protocol !== 'https:' && !['127.0.0.1', 'localhost'].includes(url.hostname)) throw new Error('Небезопасный адрес обработчика.')
+    url.searchParams.set('path', '/api/notifications/jobs')
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Firebase-Authorization': `Bearer ${await user.getIdToken()}` },
+      body: JSON.stringify({ jobId: crypto.randomUUID(), job: { ...payload, audience } }),
+      signal: AbortSignal.timeout(110000),
+    })
+    const result = await response.json().catch(() => ({})) as { error?: string }
+    if (!response.ok) throw new Error(result.error || 'Новый обработчик не принял уведомление.')
+    return
+  }
   const signalDb = options.signalDb ?? rtdb
   const creatorId = (options.creatorId ?? auth?.currentUser?.uid ?? '').trim()
   if (!signalDb || !creatorId) {
@@ -156,9 +175,10 @@ async function enqueueNotificationJob(
 
   try {
     await signalNotificationJob(signalDb, creatorId, jobRef.id, createdAtClient)
-  } catch (error) {
-    await deleteDoc(jobRef).catch(() => undefined)
-    throw error
+  } catch {
+    // The durable job is already queued. The worker's bounded fallback will pick it up.
+    // Deleting it here can race with processing or invite a duplicate on user retry.
+    console.warn('Уведомление сохранено в очереди; realtime-сигнал временно недоступен.')
   }
 }
 
@@ -209,77 +229,35 @@ async function createAuditLog(
   })
 }
 
-async function createTargetedEvent(
-  db: Firestore,
-  creator: RemoteUser,
-  userId: string,
-  title: string,
-  message: string,
-) {
-  await addDoc(collection(db, 'events'), {
-    title: title.trim(),
-    message: message.trim(),
-    type: 'INFO',
-    amount: 0,
-    isClosed: false,
-    targetUserId: userId,
-    createdById: creator.id,
-    createdByName: creator.fullName,
-    createdAt: serverTimestamp(),
-    createdAtClient: Date.now(),
-  })
-}
-
 export async function ensurePlotAccounts(db: Firestore) {
-  const [plotsSnapshot, usersSnapshot] = await Promise.all([
-    getDocs(collection(db, PLOTS_COLLECTION)),
-    getDocs(collection(db, 'users')),
-  ])
+  const plotsSnapshot = await getDocs(collection(db, PLOTS_COLLECTION))
+  const existingBalances = new Map(plotsSnapshot.docs.map(item => [
+    normalizePlots([String(item.data().name ?? '')])[0] ?? '', Number(item.data().balance ?? 0),
+  ]))
+  if (PLOT_OPTIONS.every(plot => existingBalances.has(plot))) return existingBalances
 
-  const initialBalances = deriveInitialPlotBalancesFromUsers(
-    usersSnapshot.docs.map((item) => item.data() as Record<string, unknown>),
-  )
-  const plotBalances = new Map<string, number>(PLOT_OPTIONS.map((plot) => [plot, initialBalances.get(plot) ?? 0]))
-  const existingPlots = new Set<string>()
-
-  plotsSnapshot.docs.forEach((item) => {
-    const data = item.data() as Record<string, unknown>
-    const name = normalizePlots([String(data.name ?? '')])[0] ?? ''
-    if (!name) return
-    existingPlots.add(name)
-    plotBalances.set(name, Number(data.balance ?? 0))
-  })
-
-  const batch = writeBatch(db)
-  let hasWrites = false
-  const updatedAtClient = Date.now()
-
-  PLOT_OPTIONS.forEach((plot) => {
-    if (existingPlots.has(plot)) return
-    batch.set(doc(db, PLOTS_COLLECTION, plotDocumentId(plot)), {
-      name: plot,
-      balance: plotBalances.get(plot) ?? 0,
-      sortOrder: plotSortValue(plot),
-      updatedAt: serverTimestamp(),
-      updatedAtClient,
+  const usersSnapshot = await getDocs(collection(db, 'users'))
+  return runTransaction(db, async transaction => {
+    // Migration can race with another reviewer. Re-read before writing any balances.
+    const plots = await Promise.all(PLOT_OPTIONS.map(plot => transaction.get(doc(db, PLOTS_COLLECTION, plotDocumentId(plot)))))
+    const users = await Promise.all(usersSnapshot.docs.map(user => transaction.get(user.ref)))
+    const initial = deriveInitialPlotBalancesFromUsers(users.filter(user => user.exists()).map(user => user.data()!))
+    const balances = new Map(PLOT_OPTIONS.map((plot, index) => [plot,
+      plots[index].exists() ? Number(plots[index].data()?.balance ?? 0) : initial.get(plot) ?? 0,
+    ]))
+    PLOT_OPTIONS.forEach((plot, index) => {
+      if (!plots[index].exists()) transaction.set(plots[index].ref, {
+        name: plot, balance: balances.get(plot) ?? 0, sortOrder: plotSortValue(plot),
+        updatedAt: serverTimestamp(), updatedAtClient: Date.now(),
+      })
     })
-    hasWrites = true
+    users.filter(user => user.exists()).forEach(user => {
+      const data = user.data()!
+      const balance = sumBalanceForPlots(balances, extractPlotsFromUserData(data), Number(data.balance ?? 0))
+      if (balance !== Number(data.balance ?? 0)) transaction.update(user.ref, { balance })
+    })
+    return balances
   })
-
-  usersSnapshot.docs.forEach((item) => {
-    const data = item.data() as Record<string, unknown>
-    const currentBalance = Number(data.balance ?? 0)
-    const nextBalance = sumBalanceForPlots(plotBalances, extractPlotsFromUserData(data), currentBalance)
-    if (currentBalance === nextBalance) return
-    batch.update(doc(db, 'users', item.id), { balance: nextBalance })
-    hasWrites = true
-  })
-
-  if (hasWrites) {
-    await batch.commit()
-  }
-
-  return plotBalances
 }
 
 export async function updateNotificationSettings(
@@ -387,7 +365,7 @@ export async function submitSupportRequest(
 
 function setPlotBalancesInBatch(
   db: Firestore,
-  batch: ReturnType<typeof writeBatch>,
+  batch: Pick<Transaction, 'set' | 'update'>,
   plotBalances: Map<string, number>,
   targetPlots: string[],
 ) {
@@ -409,8 +387,8 @@ function setPlotBalancesInBatch(
 
 function syncUserBalancesInBatch(
   db: Firestore,
-  batch: ReturnType<typeof writeBatch>,
-  userDocs: Awaited<ReturnType<typeof getDocs>>['docs'],
+  batch: Pick<Transaction, 'set' | 'update'>,
+  userDocs: Pick<DocumentSnapshot, 'id' | 'data'>[],
   plotBalances: Map<string, number>,
 ) {
   userDocs.forEach((item) => {
@@ -559,39 +537,36 @@ export async function rejectRegistrationRequest(
 }
 
 export async function setUserBalance(
-  db: Firestore,
-  actor: RemoteUser,
-  targetUser: RemoteUser,
-  newBalance: number,
+  db: Firestore, actor: RemoteUser, targetUser: RemoteUser, newBalance: number,
 ) {
-  const targetPlots = normalizePlots(targetUser.plots.length > 0 ? targetUser.plots : [targetUser.plotName])
-  if (targetPlots.length === 0) {
-    await updateDoc(doc(db, 'users', targetUser.id), { balance: newBalance })
-  } else {
-    const plotBalances = await ensurePlotAccounts(db)
-    const currentBalance = sumBalanceForPlots(plotBalances, targetPlots, targetUser.balance)
-    const nextPlotBalances = new Map(plotBalances)
-    const deltaByPlot = splitAmountAcrossPlots(targetPlots, newBalance - currentBalance)
-    deltaByPlot.forEach((delta, plot) => {
-      nextPlotBalances.set(plot, (nextPlotBalances.get(plot) ?? 0) + delta)
+  if (!Number.isSafeInteger(newBalance)) throw new Error('Укажите баланс в целых рублях.')
+  await ensurePlotAccounts(db)
+  const allUsers = await getDocs(collection(db, 'users'))
+  const auditRef = doc(collection(db, 'audit_logs'))
+  await runTransaction(db, async transaction => {
+    const users = await Promise.all(allUsers.docs.map(user => transaction.get(user.ref)))
+    const target = users.find(user => user.id === targetUser.id && user.exists())
+    if (!target) throw new Error('Аккаунт больше не существует.')
+    const data = target.data()!
+    const currentBalance = Number(data.balance ?? 0)
+    if (currentBalance !== targetUser.balance) throw new Error('Баланс уже изменился. Обновите карточку перед корректировкой.')
+    const targetPlots = extractPlotsFromUserData(data)
+    const plots = await Promise.all(PLOT_OPTIONS.map(plot => transaction.get(doc(db, PLOTS_COLLECTION, plotDocumentId(plot)))))
+    const balances = new Map(PLOT_OPTIONS.map((plot, index) => [plot, Number(plots[index].data()?.balance ?? 0)]))
+    if (!targetPlots.length) transaction.update(target.ref, { balance: newBalance })
+    else {
+      const deltas = splitAmountAcrossPlots(targetPlots, newBalance - sumBalanceForPlots(balances, targetPlots, currentBalance))
+      deltas.forEach((delta, plot) => balances.set(plot, (balances.get(plot) ?? 0) + delta))
+      setPlotBalancesInBatch(db, transaction, balances, targetPlots)
+      syncUserBalancesInBatch(db, transaction, users.filter(user => user.exists()), balances)
+    }
+    transaction.set(auditRef, {
+      actorId: actor.id, actorName: actor.fullName, actorRole: actor.role,
+      title: 'Изменен баланс участника', message: `Баланс изменен с ${currentBalance} ₽ на ${newBalance} ₽.`,
+      targetUserId: targetUser.id, targetUserName: String(data.fullName ?? ''), targetPlotName: targetPlots.join(', '),
+      createdAt: serverTimestamp(), createdAtClient: Date.now(),
     })
-
-    const usersSnapshot = await getDocs(collection(db, 'users'))
-    const batch = writeBatch(db)
-    setPlotBalancesInBatch(db, batch, nextPlotBalances, [...deltaByPlot.keys()])
-    syncUserBalancesInBatch(db, batch, usersSnapshot.docs, nextPlotBalances)
-    await batch.commit()
-  }
-
-  await createAuditLog(
-    db,
-    actor,
-    'Изменен баланс участника',
-    `Баланс изменен с ${targetUser.balance} ₽ на ${newBalance} ₽.`,
-    targetUser.id,
-    targetUser.fullName,
-    formatPlots(targetUser),
-  )
+  })
 }
 
 export async function setUserRole(
@@ -649,7 +624,13 @@ export async function deleteUserRecord(db: Firestore, actor: RemoteUser, targetU
 }
 export async function markChatRead(db: Firestore, userId: string, latestSeen: number, currentLastReadAt: number) {
   if (latestSeen <= 0 || latestSeen <= currentLastReadAt) return
-  await updateDoc(doc(db, 'users', userId), { lastChatReadAt: latestSeen })
+  const reference = doc(db, 'users', userId)
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference)
+    if (snapshot.exists() && latestSeen > Number(snapshot.data().lastChatReadAt ?? 0)) {
+      transaction.update(reference, { lastChatReadAt: latestSeen })
+    }
+  })
 }
 
 export async function sendChatMessage(
@@ -712,15 +693,17 @@ export async function removeChatMessage(db: Firestore, messageId: string) {
 export async function createEvent(db: Firestore, creator: RemoteUser, draft: EventDraft) {
   const title = draft.title.trim()
   const message = draft.message.trim()
-  const amount = Math.max(0, Math.round(draft.amount))
+  const amount = draft.type === 'INFO' ? 0 : draft.amount
   const type = draft.type
+  const closesAtClient = type === 'CHARGE' ? validateChargeDeadline(draft.closesAtClient ?? 0) : 0
 
   if (!title) throw new Error('Укажите заголовок')
-  if ((type === 'CHARGE' || type === 'EXPENSE') && amount <= 0) {
-    throw new Error('Сумма должна быть больше нуля')
+  if ((type === 'CHARGE' || type === 'EXPENSE') && (!Number.isSafeInteger(amount) || amount <= 0)) {
+    throw new Error('Укажите сумму в целых рублях больше нуля.')
   }
 
   const eventPayload = {
+    closesAtClient,
     title,
     message,
     type,
@@ -738,60 +721,40 @@ export async function createEvent(db: Firestore, creator: RemoteUser, draft: Eve
     createdAtClient: Date.now(),
   }
 
-  if (type === 'CHARGE') {
-    const plotBalances = await ensurePlotAccounts(db)
-    const usersSnapshot = await getDocs(collection(db, 'users'))
-    const batch = writeBatch(db)
-    const nextPlotBalances = new Map(plotBalances)
-    PLOT_OPTIONS.forEach((plot) => {
-      nextPlotBalances.set(plot, (nextPlotBalances.get(plot) ?? 0) - amount)
-    })
-
-    setPlotBalancesInBatch(db, batch, nextPlotBalances, PLOT_OPTIONS)
-    syncUserBalancesInBatch(db, batch, usersSnapshot.docs, nextPlotBalances)
-
-    usersSnapshot.docs.forEach((snapshot) => {
-      const data = snapshot.data()
-      const plots = extractPlotsFromUserData(data)
-      const plotCount = Math.max(plots.length, 1)
-      const totalCharge = amount * plotCount
-      if (totalCharge <= 0) return
-      batch.set(doc(collection(db, 'payments')), {
-        userId: snapshot.id,
-        amount: -totalCharge,
-        note: `Charge event: ${title}`,
-        createdAt: serverTimestamp(),
-        createdAtClient: Date.now(),
+  const eventRef = doc(collection(db, 'events'))
+  const auditRef = doc(collection(db, 'audit_logs'))
+  if (type === 'CHARGE') await ensurePlotAccounts(db)
+  const userDocs = type === 'CHARGE' ? (await getDocs(collection(db, 'users'))).docs : []
+  await runTransaction(db, async transaction => {
+    if (type === 'CHARGE') {
+      const users = await Promise.all(userDocs.map(user => transaction.get(user.ref)))
+      const plots = await Promise.all(PLOT_OPTIONS.map(plot => transaction.get(doc(db, PLOTS_COLLECTION, plotDocumentId(plot)))))
+      const balances = new Map(PLOT_OPTIONS.map((plot, index) => [plot, Number(plots[index].data()?.balance ?? 0) - amount]))
+      setPlotBalancesInBatch(db, transaction, balances, PLOT_OPTIONS)
+      syncUserBalancesInBatch(db, transaction, users.filter(user => user.exists()), balances)
+      users.filter(user => user.exists()).forEach(user => {
+        const totalCharge = amount * extractPlotsFromUserData(user.data()!).length
+        if (!totalCharge) return
+        transaction.set(doc(collection(db, 'payments')), {
+          userId: user.id, amount: -totalCharge, note: `Charge event: ${title}`,
+          createdAt: serverTimestamp(), createdAtClient: Date.now(),
+        })
       })
-    })
-    batch.set(doc(collection(db, 'events')), eventPayload)
-    await batch.commit()
-  } else if (type === 'EXPENSE') {
-    const fundsRef = doc(db, 'app_settings', 'community_funds')
-    const eventRef = doc(collection(db, 'events'))
-
-    await runTransaction(db, async (transaction) => {
-      const fundsSnapshot = await transaction.get(fundsRef)
-      const currentFunds = Number(fundsSnapshot.data()?.amount ?? 0)
-      if (currentFunds < amount) {
-        throw new Error('Недостаточно средств в общей кассе')
-      }
-
+    } else if (type === 'EXPENSE') {
+      const fundsRef = doc(db, 'app_settings', 'community_funds')
+      const funds = await transaction.get(fundsRef)
+      const currentFunds = Number(funds.data()?.amount ?? 0)
+      if (currentFunds < amount) throw new Error('Недостаточно средств в общей кассе')
       transaction.set(fundsRef, { amount: currentFunds - amount })
-      transaction.set(eventRef, eventPayload)
+    }
+    transaction.set(eventRef, eventPayload)
+    if (creator.role === 'ADMIN' || creator.role === 'MODERATOR') transaction.set(auditRef, {
+      actorId: creator.id, actorName: creator.fullName, actorRole: creator.role,
+      title: type === 'CHARGE' ? 'Создан сбор' : type === 'EXPENSE' ? 'Создана оплата' : 'Создано объявление',
+      message: type === 'CHARGE' || type === 'EXPENSE' ? `${title}. Сумма: ${amount} ₽.` : title,
+      targetUserId: '', targetUserName: '', targetPlotName: '', createdAt: serverTimestamp(), createdAtClient: Date.now(),
     })
-  } else {
-    await addDoc(collection(db, 'events'), eventPayload)
-  }
-
-  if (creator.role === 'ADMIN' || creator.role === 'MODERATOR') {
-    await createAuditLog(
-      db,
-      creator,
-      type === 'CHARGE' ? 'Создан сбор' : type === 'EXPENSE' ? 'Создана оплата' : 'Создано объявление',
-      type === 'CHARGE' || type === 'EXPENSE' ? `${title}. Сумма: ${amount} ₽.` : title,
-    )
-  }
+  })
 }
 
 export async function updateEvent(
@@ -855,10 +818,9 @@ export async function submitPoll(db: Firestore, profile: RemoteUser, pollDraft: 
     .split('\n')
     .map((item) => item.trim())
     .filter(Boolean)
-    .slice(0, 8)
 
   if (!title) throw new Error('Укажите заголовок опроса')
-  if (options.length < 2) throw new Error('Для опроса нужно минимум два варианта ответа')
+  if (options.length < 2 || options.length > 8 || new Set(options.map(option => option.toLowerCase())).size !== options.length) throw new Error('Нужно от 2 до 8 разных вариантов ответа')
 
   await addDoc(collection(db, 'events'), {
     title,
@@ -913,32 +875,48 @@ export async function createPaymentRequest(
   amount: number,
   events: CommunityEvent[],
   purpose: string,
+  selectedPlots?: string[],
 ) {
-  const normalizedAmount = Math.round(amount)
+  const normalizedAmount = amount
   const cleanPurpose = purpose.trim()
   const cleanEvents = events.filter((item) => item.type === 'CHARGE').filter((item, index, array) => {
     return array.findIndex((candidate) => candidate.id === item.id) === index
   })
   const eventIds = cleanEvents.map((item) => item.id)
-  const plotIds = profile.plots.map((plot) => plot.trim()).filter(Boolean)
+  const ownedPlots = normalizePlots(profile.plots.length ? profile.plots : [profile.plotName])
+  const plotIds = normalizePlots(selectedPlots ?? ownedPlots)
+  if (!plotIds.length || plotIds.some(plot => !ownedPlots.includes(plot))) throw new Error('Выберите свои участки для оплаты')
 
-  if (normalizedAmount <= 0) throw new Error('Укажите сумму больше нуля')
+  if (!Number.isSafeInteger(normalizedAmount) || normalizedAmount <= 0) throw new Error('Укажите сумму в целых рублях больше нуля')
+  if (!cleanPurpose) throw new Error('Укажите назначение платежа')
 
-  await addDoc(collection(db, 'payment_requests'), {
-    userId: profile.id,
-    userName: profile.fullName,
-    plotName: formatPlots(profile),
-    amount: normalizedAmount,
-    eventId: eventIds.join(','),
-    eventIds,
-    plotIds,
-    eventTitle: cleanEvents.map((item) => item.title).join(', '),
-    purpose: cleanPurpose,
-    status: 'PENDING',
-    reviewedByName: '',
-    reviewReason: '',
-    createdAt: serverTimestamp(),
-    createdAtClient: Date.now(),
+  const requestRef = doc(collection(db, 'payment_requests'))
+  await runTransaction(db, async transaction => {
+    const owner = await transaction.get(doc(db, 'users', profile.id))
+    const currentPlots = owner.exists() ? extractPlotsFromUserData(owner.data()) : []
+    if (plotIds.some(plot => !currentPlots.includes(plot))) throw new Error('Список ваших участков изменился. Обновите страницу.')
+    for (const event of cleanEvents) {
+      const snapshot = await transaction.get(doc(db, 'events', event.id))
+      if (!snapshot.exists() || snapshot.data().type !== 'CHARGE' || isChargeClosed({ type: 'CHARGE', isClosed: Boolean(snapshot.data().isClosed), closesAtClient: Number(snapshot.data().closesAtClient ?? 0) })) {
+        throw new Error('Один из выбранных сборов уже закрыт. Обновите список сборов.')
+      }
+    }
+    transaction.set(requestRef, {
+      userId: profile.id,
+      userName: profile.fullName,
+      plotName: plotIds.join(', '),
+      amount: normalizedAmount,
+      eventId: eventIds.join(','),
+      eventIds,
+      plotIds,
+      eventTitle: cleanEvents.map((item) => item.title).join(', '),
+      purpose: cleanPurpose,
+      status: 'PENDING',
+      reviewedByName: '',
+      reviewReason: '',
+      createdAt: serverTimestamp(),
+      createdAtClient: Date.now(),
+    })
   })
 }
 
@@ -971,12 +949,35 @@ export async function savePaymentConfig(
   })
 }
 
+function recordPaymentReview(
+  db: Firestore, transaction: Transaction, reviewer: RemoteUser, requestId: string,
+  request: Record<string, unknown>, status: 'CONFIRMED' | 'REJECTED', reason = '',
+) {
+  const confirmed = status === 'CONFIRMED'
+  const title = confirmed ? 'Оплата подтверждена' : 'Оплата отклонена'
+  const purpose = String(request.eventTitle || request.purpose || '').trim()
+  const amount = Number(request.amount ?? 0)
+  const message = confirmed
+    ? `Ваш платеж на сумму ${amount} ₽ подтвержден.${purpose ? ` Назначение: ${purpose}.` : ''}`
+    : `Ваш платеж на сумму ${amount} ₽ отклонен.${reason ? ` Причина: ${reason}.` : ' Уточните детали у администратора или модератора.'}`
+  const createdAtClient = Date.now()
+  transaction.set(doc(db, 'events', `payment-review-${requestId}`), {
+    title, message, type: 'INFO', amount: 0, isClosed: false, targetUserId: String(request.userId),
+    createdById: reviewer.id, createdByName: reviewer.fullName, createdAt: serverTimestamp(), createdAtClient,
+  })
+  transaction.set(doc(db, 'audit_logs', `payment-review-${requestId}`), {
+    actorId: reviewer.id, actorName: reviewer.fullName, actorRole: reviewer.role,
+    title, message, targetUserId: String(request.userId), targetUserName: String(request.userName ?? ''),
+    targetPlotName: String(request.plotName ?? ''), createdAt: serverTimestamp(), createdAtClient,
+  })
+}
+
 export async function confirmPaymentRequest(
   db: Firestore,
   reviewer: RemoteUser,
   requestId: string,
 ) {
-  const plotBalances = await ensurePlotAccounts(db)
+  await ensurePlotAccounts(db)
   const allUsersSnapshot = await getDocs(collection(db, 'users'))
   const requestRef = doc(db, 'payment_requests', requestId)
   const fundsRef = doc(db, 'app_settings', 'community_funds')
@@ -989,21 +990,27 @@ export async function confirmPaymentRequest(
     const userId = String(requestData.userId ?? '')
     const amount = Number(requestData.amount ?? 0)
     const status = String(requestData.status ?? '')
-    if (!userId || amount <= 0 || status !== 'PENDING') return null
+    if (status !== 'PENDING') return null
+    if (!userId || !Number.isSafeInteger(amount) || amount <= 0) throw new Error('В заявке указана некорректная сумма или плательщик.')
 
-    const userRef = doc(db, 'users', userId)
-    const userSnapshot = await transaction.get(userRef)
     const currentFundsSnapshot = await transaction.get(fundsRef)
 
     const requestPlotIds = Array.isArray(requestData.plotIds)
-      ? requestData.plotIds.map(String).map((plot) => plot.trim()).filter(Boolean)
+      ? normalizePlots(requestData.plotIds.map(String))
       : []
     const payerPlots =
-      requestPlotIds.length > 0 ? requestPlotIds : extractPlotsFromUserData((userSnapshot.data() ?? {}) as Record<string, unknown>)
+      requestPlotIds.length > 0 ? requestPlotIds : normalizePlots(String(requestData.plotName ?? '').split(','))
+    if (!payerPlots.length) throw new Error('В заявке не указаны участки. Уточните данные перед подтверждением.')
     const plotShares = splitAmountAcrossPlots(payerPlots, amount)
     const currentFunds = Number(currentFundsSnapshot.data()?.amount ?? 0)
 
-    const nextPlotBalances = new Map(plotBalances)
+    // Read current balances in the transaction: concurrent approvals must not overwrite one another.
+    const currentUsers = await Promise.all(allUsersSnapshot.docs.map(item => transaction.get(item.ref)))
+    const affectedUsers = currentUsers.filter(item => item.exists() &&
+      (item.id === userId || extractPlotsFromUserData(item.data()!).some(plot => payerPlots.includes(plot))))
+    const relatedPlots = normalizePlots([...payerPlots, ...affectedUsers.flatMap(item => extractPlotsFromUserData(item.data() ?? {}))])
+    const currentPlots = await Promise.all(relatedPlots.map(plot => transaction.get(doc(db, PLOTS_COLLECTION, plotDocumentId(plot)))))
+    const nextPlotBalances = new Map(relatedPlots.map((plot, index) => [plot, Number(currentPlots[index].data()?.balance ?? 0)]))
     plotShares.forEach((increment, plot) => {
       nextPlotBalances.set(plot, (nextPlotBalances.get(plot) ?? 0) + increment)
       transaction.set(
@@ -1019,7 +1026,7 @@ export async function confirmPaymentRequest(
       )
     })
 
-    allUsersSnapshot.docs.forEach((item) => {
+    affectedUsers.filter(item => item.exists()).forEach((item) => {
       const data = item.data() as Record<string, unknown>
       const currentBalance = Number(data.balance ?? 0)
       const nextBalance = sumBalanceForPlots(nextPlotBalances, extractPlotsFromUserData(data), currentBalance)
@@ -1038,42 +1045,10 @@ export async function confirmPaymentRequest(
     })
     transaction.set(fundsRef, { amount: currentFunds + amount })
 
-    return {
-      userId,
-      amount,
-      userName: String(requestData.userName ?? ''),
-      plotName: String(requestData.plotName ?? ''),
-      eventTitle: String(requestData.eventTitle ?? ''),
-      purpose: String(requestData.purpose ?? ''),
-    }
+    recordPaymentReview(db, transaction, reviewer, requestId, requestData, 'CONFIRMED')
+    return true
   })
-
-  if (!confirmedRequest) return
-
-  await createTargetedEvent(
-    db,
-    reviewer,
-    confirmedRequest.userId,
-    'Оплата подтверждена',
-    confirmedRequest.eventTitle
-      ? `Ваш платеж на сумму ${confirmedRequest.amount} ₽ подтвержден. Назначение: ${confirmedRequest.eventTitle}.`
-      : confirmedRequest.purpose
-        ? `Ваш платеж на сумму ${confirmedRequest.amount} ₽ подтвержден. Назначение: ${confirmedRequest.purpose}.`
-        : `Ваш платеж на сумму ${confirmedRequest.amount} ₽ подтвержден.`,
-  )
-  await createAuditLog(
-    db,
-    reviewer,
-    'Подтверждена оплата',
-    confirmedRequest.eventTitle
-      ? `Подтверждена оплата на ${confirmedRequest.amount} ₽. Назначение: ${confirmedRequest.eventTitle}.`
-      : confirmedRequest.purpose
-        ? `Подтверждена оплата на ${confirmedRequest.amount} ₽. Назначение: ${confirmedRequest.purpose}.`
-        : `Подтверждена оплата на ${confirmedRequest.amount} ₽.`,
-    confirmedRequest.userId,
-    confirmedRequest.userName,
-    confirmedRequest.plotName,
-  )
+  return Boolean(confirmedRequest)
 }
 
 export async function rejectPaymentRequest(
@@ -1083,59 +1058,48 @@ export async function rejectPaymentRequest(
   reason: string,
 ) {
   const requestRef = doc(db, 'payment_requests', requestId)
-  const snapshot = await getDoc(requestRef)
-  const requestData = snapshot.data()
-  if (!requestData) return
-
   const normalizedReason = reason.trim()
-
-  await updateDoc(requestRef, {
-    status: 'REJECTED',
-    reviewedById: reviewer.id,
-    reviewedByName: reviewer.fullName,
-    reviewReason: normalizedReason,
-    reviewedAt: serverTimestamp(),
+  const requestData = await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(requestRef)
+    const data = snapshot.data()
+    if (!data || data.status !== 'PENDING') return null
+    transaction.update(requestRef, {
+      status: 'REJECTED', reviewedById: reviewer.id, reviewedByName: reviewer.fullName,
+      reviewReason: normalizedReason, reviewedAt: serverTimestamp(),
+    })
+    recordPaymentReview(db, transaction, reviewer, requestId, data, 'REJECTED', normalizedReason)
+    return true
   })
-
-  const userId = String(requestData.userId ?? '')
-  const amount = Number(requestData.amount ?? 0)
-  const userName = String(requestData.userName ?? '')
-  const plotName = String(requestData.plotName ?? '')
-
-  await createTargetedEvent(
-    db,
-    reviewer,
-    userId,
-    'Оплата отклонена',
-    normalizedReason
-      ? `Ваш платеж на сумму ${amount} ₽ отклонен. Причина: ${normalizedReason}.`
-      : `Ваш платеж на сумму ${amount} ₽ отклонен. Уточните детали у администратора или модератора.`,
-  )
-  await createAuditLog(
-    db,
-    reviewer,
-    'Отклонена оплата',
-    normalizedReason
-      ? `Отклонена оплата на ${amount} ₽. Причина: ${normalizedReason}.`
-      : `Отклонена оплата на ${amount} ₽.`,
-    userId,
-    userName,
-    plotName,
-  )
+  return Boolean(requestData)
 }
 
 export async function voteInPoll(db: Firestore, profile: RemoteUser, poll: CommunityEvent, option: string) {
-  if (poll.voterIds.includes(profile.id) || poll.isClosed) return
+  const reference = doc(db, 'events', poll.id)
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference)
+    const current = snapshot.data()
+    if (!current || current.type !== 'POLL') throw new Error('Голосование удалено.')
+    if (current.isClosed) throw new Error('Голосование уже завершено.')
+    if (!current.pollOptions?.includes(option)) throw new Error('Вариант ответа больше недоступен.')
+    const voterIds: string[] = current.voterIds ?? []
+    if (voterIds.includes(profile.id)) return
+    transaction.update(reference, {
+      pollVotes: { ...current.pollVotes, [option]: Number(current.pollVotes?.[option] ?? 0) + 1 },
+      voterIds: [...voterIds, profile.id],
+      voterChoices: { ...current.voterChoices, [profile.id]: option },
+    })
+  })
+}
 
-  await updateDoc(doc(db, 'events', poll.id), {
-    pollVotes: {
-      ...poll.pollVotes,
-      [option]: Number(poll.pollVotes[option] ?? 0) + 1,
-    },
-    voterIds: arrayUnion(profile.id),
-    voterChoices: {
-      ...poll.voterChoices,
-      [profile.id]: option,
-    },
+export async function toggleChatReaction(db: Firestore, userId: string, messageId: string, emoji: string) {
+  if (!['👍', '❤️', '😂', '🎉', '🙏', '👎'].includes(emoji)) return
+  const reference = doc(db, 'chat_messages', messageId)
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference)
+    if (!snapshot.exists()) throw new Error('Сообщение удалено')
+    const reactions: Record<string, string> = { ...(snapshot.data().reactions ?? {}) }
+    if (reactions[userId] === emoji) delete reactions[userId]
+    else reactions[userId] = emoji
+    transaction.update(reference, { reactions })
   })
 }

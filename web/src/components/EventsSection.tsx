@@ -1,3 +1,6 @@
+import { useCurrentTime } from '../hooks/useCurrentTime'
+import { isChargeClosed, validateChargeDeadline } from '../lib/chargeDeadline'
+import { parsePaymentRubles } from '../lib/paymentSelection'
 import { useMemo, useState, type ChangeEvent } from 'react'
 import type { CommunityEvent, EventType, RemoteUser } from '../types'
 
@@ -13,7 +16,7 @@ type EventsSectionProps = {
   events: CommunityEvent[]
   formatDateTime: (value: number) => string
   labelForEventType: (event: CommunityEvent) => string
-  onCreateEvent: (payload: { title: string; message: string; type: EventType; amount: number }) => void | Promise<void>
+  onCreateEvent: (payload: { title: string; message: string; type: EventType; amount: number; closesAtClient?: number }) => void | Promise<void>
   onEditEvent: (event: CommunityEvent, payload: { title: string; message: string }) => void | Promise<void>
   onCloseCharge: (event: CommunityEvent) => void | Promise<void>
 }
@@ -98,6 +101,8 @@ export function EventsSection({
   const [templateName, setTemplateName] = useState('')
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
+  const now = useCurrentTime()
+  const [closesAt, setClosesAt] = useState('')
   const [amount, setAmount] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
@@ -125,22 +130,21 @@ export function EventsSection({
   const handleTypeChange = (nextType: EventType) => {
     setEventType(nextType)
     setTemplateName('')
-    setTitle('')
-    setMessage('')
     setAmount('')
+    setClosesAt('')
     setFormError('')
   }
 
   const handleSubmit = async () => {
     const normalizedTitle = title.trim()
-    const normalizedAmount = Number(amount.replace(/[^\d]/g, '')) || 0
+    const normalizedAmount = eventType === 'INFO' ? 0 : parsePaymentRubles(amount)
 
     if (!normalizedTitle) {
       setFormError('Введите заголовок события')
       return
     }
-    if ((eventType === 'CHARGE' || eventType === 'EXPENSE') && normalizedAmount <= 0) {
-      setFormError(eventType === 'CHARGE' ? 'Для сбора нужна сумма больше нуля' : 'Для оплаты нужна сумма больше нуля')
+    if (normalizedAmount === null) {
+      setFormError('Укажите сумму в целых рублях больше нуля.')
       return
     }
 
@@ -152,13 +156,17 @@ export function EventsSection({
         message,
         type: eventType,
         amount: normalizedAmount,
+        closesAtClient: eventType === 'CHARGE' ? validateChargeDeadline(closesAt ? new Date(closesAt).getTime() : 0) : 0,
       })
       setTemplateName('')
       setTitle('')
       setMessage('')
       setAmount('')
+      setClosesAt('')
       setEventType('INFO')
       setIsCreateExpanded(false)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Не удалось создать событие.')
     } finally {
       setSubmitting(false)
     }
@@ -190,7 +198,7 @@ export function EventsSection({
   }
 
   return (
-    <section className="panel">
+    <section className="panel events-section">
       <div className="panel-heading">
         <p className="eyebrow accent">Раздел</p>
         <h2>Объявления и события</h2>
@@ -205,7 +213,7 @@ export function EventsSection({
               <p>Публикуйте уведомления, создавайте сборы и фиксируйте оплаты из общей кассы.</p>
             </div>
             <button className="ghost-button" type="button" onClick={() => setIsCreateExpanded((value) => !value)}>
-              {isCreateExpanded ? 'Свернуть' : 'Развернуть'}
+              {isCreateExpanded ? 'Свернуть' : '+ Создать событие'}
             </button>
           </div>
 
@@ -213,9 +221,9 @@ export function EventsSection({
             <div className="poll-create">
               <div className="event-choice-list" role="radiogroup" aria-label="Тип события">
                 {([
-                  { value: 'INFO', label: 'Просто уведомление' },
+                  { value: 'INFO', label: 'Объявление' },
                   { value: 'CHARGE', label: 'Сбор средств' },
-                  { value: 'EXPENSE', label: 'Оплата' },
+                  { value: 'EXPENSE', label: 'Расход из кассы' },
                 ] as const).map((item) => {
                   const selected = eventType === item.value
                   return (
@@ -235,17 +243,16 @@ export function EventsSection({
               </div>
 
               {templates.length > 0 && (
-                <label className="event-template-field">
-                  <span>Шаблон сообщения</span>
-                  <select value={templateName} onChange={(event) => applyTemplate(event.target.value)}>
-                    <option value="">Выберите шаблон</option>
+                <div className="event-template-field">
+                  <span>Начать с шаблона <small>· необязательно</small></span>
+                  <div className="event-template-chips">
                     {templates.map((template) => (
-                      <option key={template.name} value={template.name}>
+                      <button type="button" aria-pressed={templateName === template.name} key={template.name} onClick={() => applyTemplate(template.name)}>
                         {template.name}
-                      </option>
+                      </button>
                     ))}
-                  </select>
-                </label>
+                  </div>
+                </div>
               )}
 
               <input
@@ -254,12 +261,14 @@ export function EventsSection({
                   setTitle(event.target.value)
                   if (formError) setFormError('')
                 }}
-                placeholder="Заголовок события"
+                aria-label="Заголовок события"
+                placeholder="Как назовём событие?"
               />
               <textarea
                 value={message}
                 onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setMessage(event.target.value)}
-                placeholder="Описание события"
+                aria-label="Описание события"
+                placeholder="Что нужно знать соседям?"
                 rows={3}
               />
               {(eventType === 'CHARGE' || eventType === 'EXPENSE') && (
@@ -269,10 +278,15 @@ export function EventsSection({
                     setAmount(event.target.value)
                     if (formError) setFormError('')
                   }}
-                  placeholder={eventType === 'CHARGE' ? 'Сумма сбора' : 'Сумма оплаты'}
+                  aria-label={eventType === 'CHARGE' ? 'Сумма сбора в рублях' : 'Сумма расхода в рублях'}
+                  placeholder={eventType === 'CHARGE' ? 'Сумма сбора, ₽' : 'Сумма расхода, ₽'}
                   inputMode="numeric"
                 />
               )}
+              {eventType === 'CHARGE' && <label className="charge-deadline-field">Дата и время закрытия
+                <input type="datetime-local" value={closesAt} onChange={event => setClosesAt(event.target.value)} />
+                <small>Необязательно. Пустое поле — без срока. Время указано в часовом поясе устройства. Закрытие не списывает задолженность.</small>
+              </label>}
               {formError && <p className="error-note">{formError}</p>}
               <button className="primary-button" type="button" onClick={() => void handleSubmit()} disabled={submitting}>
                 {submitting ? 'Публикуем...' : 'Опубликовать событие'}
@@ -287,7 +301,7 @@ export function EventsSection({
           <div className="chat-empty-inline">Пока нет объявлений для веб-кабинета.</div>
         ) : (
           sortedEvents.map((item) => {
-            const canCloseCharge = item.type === 'CHARGE' && !item.isClosed && isStaff
+            const canCloseCharge = item.type === 'CHARGE' && !isChargeClosed(item, now) && isStaff
             const isEditing = editingEventId === item.id
 
             return (
@@ -298,6 +312,7 @@ export function EventsSection({
                 </div>
                 <h3>{item.title}</h3>
                 {item.message.trim() && <p>{item.message}</p>}
+                {item.type === 'CHARGE' && <p className="charge-deadline-status">{isChargeClosed(item, now) ? 'Сбор закрыт' : item.closesAtClient ? `Открыт до ${new Date(item.closesAtClient).toLocaleString('ru-RU')}` : 'Без срока закрытия'}</p>}
                 {item.amount > 0 && <strong className="event-amount">{item.amount.toLocaleString('ru-RU')} ₽</strong>}
                 {item.createdByName && <p className="hero-copy compact">Создал: {item.createdByName}</p>}
 

@@ -1,0 +1,52 @@
+/* Shared typography and contrast for both themes, including service screens. */
+:root { --ui-warning: #efb470; --ui-warning-bg: #382c21; }
+:root[data-theme=light] { --ui-muted: #526577; --ui-blue: #216e94; --ui-warning: #995009; --ui-warning-bg: #fff3e3; color-scheme: light; }
+:root[data-theme=dark] { color-scheme: dark; }
+html[data-theme] body { font-family: 'Segoe UI', system-ui, sans-serif; font-weight: 400; background: var(--ui-bg); color: var(--ui-text); }
+html[data-theme] :is(button,input,textarea,select) { font-family: inherit; }
+html[data-theme] .shell :is(.hero-copy,.panel-heading p,.detail-card__text span,.settings-panel__section p,.settings-push-card__copy p,.empty-state,.chat-empty-inline,.charge-picker__title) { font-weight: 400; line-height: 1.55; color: var(--ui-muted); }
+html[data-theme] .shell :is(.settings-panel h3,.settings-panel h4,.poll-create-card h3,.payment-request-card h3,.verification-box__header strong) { font-weight: 600; color: var(--ui-text); }
+html[data-theme] .shell :is(.form-grid label,.payment-form-grid label,.event-template-field,.settings-panel label,.poll-anonymous-toggle__label,.request-tab,.request-tab__count,.settings-toggle-card__label) { font-weight: 500; }
+html[data-theme] .shell :is(.event-template-field,.event-choice,.charge-chip__title,.settings-toggle-card__label,.settings-push-card strong) { color: var(--ui-text); }
+html[data-theme] .shell :is(.primary-button,.ghost-button,.danger-button,.copy-button,.notice-close) { font-weight: 500; }
+html[data-theme] .shell .detail-card__text strong { font-weight: 600; }
+html[data-theme] .shell :is(.request-tab,.notice-close) { background: var(--ui-surface); color: var(--ui-text); border: 1px solid var(--ui-line); }
+html[data-theme] .shell .request-tab.is-active { background: var(--ui-active); color: var(--ui-text); border-color: var(--ui-accent); }
+html[data-theme] .shell .request-tab__count { background: var(--ui-raised); color: var(--ui-text); }
+html[data-theme] .shell .event-choice-dot { border-color: var(--ui-muted); }
+html[data-theme] .shell .event-choice.is-selected .event-choice-dot { border-color: var(--ui-accent); box-shadow: inset 0 0 0 4px var(--ui-accent); }
+html[data-theme] .shell :is(input,textarea)::placeholder { color: var(--ui-muted); opacity: 1; }
+html[data-theme] .shell .error-note { color: var(--status-debt); background: var(--status-debt-bg); border-color: var(--status-debt-line); }
+html[data-theme] .shell .success-note { color: var(--status-clear); background: var(--status-clear-bg); border-color: var(--status-clear-line); }
+html[data-theme] .shell .danger-button { color: var(--status-debt); background: var(--status-debt-bg); border: 1px solid var(--status-debt-line); }
+html[data-theme] .shell .settings-toggle-card__description { color: var(--ui-muted); font-size: 13px; line-height: 1.5; }
+html[data-theme] .shell .site-footer__inner { color: var(--ui-muted); border-color: var(--ui-line); font-size: 12px; font-weight: 400; line-height: 1.6; }
+html[data-theme] .shell .site-footer__copy strong { color: var(--ui-text); font-weight: 500; }
+html[data-theme] .shell .site-footer__links a { color: var(--ui-blue); text-decoration: underline; text-decoration-color: color-mix(in srgb,var(--ui-blue) 40%,transparent); text-underline-offset: 4px; }
+html[data-theme] .shell .site-footer__links a:hover { color: var(--ui-text); text-decoration-color: currentColor; }
+html[data-theme] a:focus-visible,html[data-theme] button:focus-visible { outline: 2px solid var(--ui-blue); outline-offset: 3px; }
+html[data-theme=light] .shell :is(.charge-chip__amount,.charge-chip__meta,.payment-request-card__heading p,.gate-open-button__hint,.brand-lockup .hero-copy,.app-navigation__bottom,.app-navigation__label) { color: var(--ui-muted); }
+html[data-theme=light] .shell .resident-chat__menu-item.is-danger { color: var(--status-debt); }
+html[data-theme=light] .shell .resident-chat__bubble.is-mine .resident-chat__time { color: #526071; }
+/* Poll result buttons remain legible when voting is disabled. */
+html[data-theme] .shell .poll-option:disabled { opacity: 1; }
+html[data-theme] .maintenance-card { --service-color: var(--ui-warning); --service-bg: var(--ui-warning-bg); }
+html[data-theme] .maintenance-card--error { --service-color: var(--status-debt); --service-bg: var(--status-debt-bg); }
+html[data-theme] .maintenance-card .maintenance-chip { color: var(--service-color); background: var(--service-bg); border-color: color-mix(in srgb,var(--service-color) 35%,var(--ui-line)); }
+html[data-theme] .maintenance-card .maintenance-chip::before { background: var(--service-color); animation: service-indicator 2.5s ease-in-out infinite; }
+.service-status-icon { display: grid; place-items: center; width: 50px; height: 50px; margin-bottom: 20px; color: var(--service-color); background: var(--service-bg); border: 1px solid color-mix(in srgb,var(--service-color) 30%,transparent); border-radius: 15px; }
+.service-status-icon svg { width: 27px; height: 27px; }
+@keyframes service-indicator { 50% { opacity: .5; box-shadow: 0 0 0 4px color-mix(in srgb,var(--service-color) 12%,transparent); } }
+html[data-theme] .shell.loading-shell { min-height: 100dvh; padding: 32px 20px 24px; background: radial-gradient(ellipse at 10% 10%,var(--brand-rose-glow),transparent 60%),radial-gradient(ellipse at 90% 90%,var(--brand-blue-glow),transparent 60%),var(--ui-bg); }
+.loading-card { width: min(400px,100%); margin: auto; padding: 32px 24px; text-align: center; color: var(--ui-text); animation: surface-enter .4s ease both; }
+.loading-brand { font-size: 20px; font-weight: 600; letter-spacing: -.5px; margin: 0 0 30px; }
+html[data-theme] .loading-card h1 { color: var(--ui-text); font-size: 18px; line-height: 1.45; font-weight: 500; letter-spacing: -.2px; margin: 24px 0 8px; }
+.loading-caption { color: var(--ui-muted); font-size: 13px; line-height: 1.5; margin: 0; }
+.loading-orbit { position: relative; width: 58px; height: 58px; margin: auto; }
+.loading-orbit span { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--ui-line); border-top-color: var(--ui-accent); animation: avatar-spin 1.8s linear infinite; }
+.loading-orbit span:nth-child(2) { inset: 9px; border-top-color: var(--ui-blue); animation-direction: reverse; animation-duration: 2.4s; }
+.loading-orbit span:nth-child(3) { inset: 23px; background: var(--ui-accent); border: 0; animation: none; }
+.loading-track { width: 130px; height: 3px; border-radius: 4px; background: var(--ui-line); overflow: hidden; margin: 26px auto 0; }
+.loading-track span { display: block; width: 45%; height: 100%; border-radius: inherit; background: linear-gradient(90deg,var(--ui-accent),var(--ui-blue)); animation: loading-slide 1.6s ease-in-out infinite alternate; }
+@keyframes loading-slide { from { transform: translateX(-100%); } to { transform: translateX(225%); } }
+@media(prefers-reduced-motion:reduce) { .loading-card,.loading-orbit span,.loading-track span,html[data-theme] .maintenance-card .maintenance-chip::before { animation: none; } }
