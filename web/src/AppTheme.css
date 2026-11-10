@@ -226,6 +226,15 @@ html[data-theme] .shell--modern .gate-open-button.is-debt-blocked .gate-open-but
 html[data-theme] .shell--modern .owner-card:is(.is-debt,.is-overpaid,.is-clear) > .owner-balance-status { color: var(--state-text); }
 html[data-theme] .shell--modern .event-charge { border-left: 3px solid #cb9b53; }
 html[data-theme] .shell--modern .event-expense { border-left: 3px solid var(--status-credit-line); }
+html[data-theme] .shell--modern .event-info {
+  border-left: 3px solid color-mix(in srgb,var(--ui-blue) 65%,var(--ui-line));
+  background: linear-gradient(110deg,color-mix(in srgb,var(--ui-blue) 8%,var(--ui-raised)),var(--ui-raised));
+}
+html[data-theme] .shell--modern .event-info .event-badge {
+  color: var(--ui-blue);
+  border-color: color-mix(in srgb,var(--ui-blue) 45%,var(--ui-line));
+  background: color-mix(in srgb,var(--ui-blue) 10%,var(--ui-surface));
+}
 html[data-theme] .shell--modern .event-charge .event-amount { color: #edc68f; }
 html[data-theme=light] .shell--modern .event-charge .event-amount { color: #8d5c17; }
 /* Financial meaning stays visible without filling every owner card with a strong colour. */

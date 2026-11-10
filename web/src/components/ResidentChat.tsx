@@ -1,5 +1,6 @@
 import { ChatReaders } from './ChatReaders'
 import { canReadVisibleContent } from '../lib/readVisibility'
+import { selectedOwnChatMessage, type ChatReadersSelection } from '../lib/chatReadReceipts'
 import { createPortal } from 'react-dom'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -126,7 +127,7 @@ export function ResidentChat({
   readingBlocked = false,
   loadAttachment = downloadChatAttachment,
 }: ResidentChatProps) {
-  const [readersMessage, setReadersMessage] = useState<ResidentChatMessage | null>(null)
+  const [readersSelection, setReadersSelection] = useState<ChatReadersSelection | null>(null)
   const [actionError, setActionError] = useState('')
   const [reactionBusy, setReactionBusy] = useState(false)
   const [search, setSearch] = useState('')
@@ -156,6 +157,20 @@ export function ResidentChat({
   const settleScrollTimersRef = useRef<number[]>([])
   const longPressTimerRef = useRef<number | null>(null)
   const longPressTriggeredRef = useRef(false)
+
+  const readersMessage = selectedOwnChatMessage(messages, profile.id, readersSelection)
+  const ownMenuMessage = menu ? selectedOwnChatMessage(messages, profile.id, { messageId: menu.message.id, viewerId: profile.id }) : null
+
+  const openReaders = (message: ResidentChatMessage) => {
+    const selection = { messageId: message.id, viewerId: profile.id }
+    setReadersSelection(selectedOwnChatMessage(messages, profile.id, selection) ? selection : null)
+    setMenu(null)
+  }
+
+  useEffect(() => {
+    setReadersSelection(null)
+    setMenu(null)
+  }, [profile.id])
 
   const mentionCandidates = useMemo(
     () =>
@@ -728,7 +743,7 @@ export function ResidentChat({
                         {message.updatedAtClient > 0 && <span className="resident-chat__flag">изменено</span>}
                         {message.isPinned && <span className="resident-chat__flag">закреплено сверху</span>}
                       </span>
-                      <span className="resident-chat__delivery"><span className="resident-chat__time">{formatTime(message.createdAtClient)}</span>{isMine && <button type="button" className="resident-chat__ticks" onClick={() => setReadersMessage(message)} title="Кто прочитал" aria-label={readStatusLabel(message) === '✓✓' ? 'Прочитано' : 'Отправлено'}><svg viewBox="0 0 24 16" aria-hidden="true"><path d="m2 8 4 4L16 2" />{readStatusLabel(message) === '✓✓' && <path d="m10 10 2 2L22 2" />}</svg></button>}</span>
+                      <span className="resident-chat__delivery"><span className="resident-chat__time">{formatTime(message.createdAtClient)}</span>{isMine && <button type="button" className="resident-chat__ticks" onClick={() => openReaders(message)} title="Кто прочитал" aria-label={readStatusLabel(message) === '✓✓' ? 'Прочитано' : 'Отправлено'}><svg viewBox="0 0 24 16" aria-hidden="true"><path d="m2 8 4 4L16 2" />{readStatusLabel(message) === '✓✓' && <path d="m10 10 2 2L22 2" />}</svg></button>}</span>
                     </div>
                   </>
                 )}
@@ -881,7 +896,7 @@ export function ResidentChat({
         </div>
       </div>
 
-      {readersMessage && <ChatReaders message={readersMessage} users={users} onClose={() => setReadersMessage(null)} />}
+      {readersMessage && <ChatReaders message={readersMessage} viewerId={profile.id} users={users} onClose={() => setReadersSelection(null)} />}
       {actionError && <div className="chat-action-error" role="alert">{actionError}<button onClick={() => setActionError('')}>Закрыть</button></div>}
       {menu &&
         createPortal(
@@ -910,7 +925,7 @@ export function ResidentChat({
             >
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16 11-11 4 4L8 20H4z M13 7l4 4" /></svg> Редактировать
             </button>
-            <button role="menuitem" className="resident-chat__menu-item" onClick={() => { setReadersMessage(menu.message); setMenu(null) }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg> Кто прочитал</button>
+            {ownMenuMessage && <button role="menuitem" className="resident-chat__menu-item" onClick={() => openReaders(ownMenuMessage)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg> Кто прочитал</button>}
             {menu.message.senderId === profile.id && <button role="menuitem" className="resident-chat__menu-item" onClick={() => {
               const target = menu.message
               startEdit(target)
