@@ -147,7 +147,7 @@ export function ResidentChat({
   const [editingText, setEditingText] = useState('')
   const { touch, enableTouch, enableMouse } = useTouchChatInteraction()
   const [mobileSelection, setMobileSelection] = useState<MobileMessageSelection | null>(null)
-  const [mobileDetails, setMobileDetails] = useState<MobileMessageSelection | null>(null)
+  const [mobileDetails, setMobileDetails] = useState<(MobileMessageSelection & { selectText: boolean }) | null>(null)
   const [composerEdit, setComposerEdit] = useState<MobileMessageSelection | null>(null)
   const [composerEditText, setComposerEditText] = useState('')
   const [savingComposerEdit, setSavingComposerEdit] = useState(false)
@@ -437,10 +437,10 @@ export function ResidentChat({
     longPressRef.current.move({ x: touch.clientX, y: touch.clientY })
   }
 
-  const openMobileDetails = (message: ResidentChatMessage) => {
+  const openMobileDetails = (message: ResidentChatMessage, selectText = false) => {
     setMenu(null)
     setActionError('')
-    setMobileDetails({ messageId: message.id, viewerId: profile.id })
+    setMobileDetails({ messageId: message.id, viewerId: profile.id, selectText })
   }
 
   const handleBubbleClick = (event: React.MouseEvent<HTMLElement>, message: ResidentChatMessage) => {
@@ -688,7 +688,8 @@ export function ResidentChat({
       {selectedMessage ? <ChatMobileSelectionBar message={selectedMessage} viewerId={profile.id}
         onClose={() => setMobileSelection(null)} onReply={() => startMobileReply(selectedMessage)}
         onEdit={() => startComposerEdit(selectedMessage)} onDelete={() => void deleteSelectedMessage(selectedMessage)}
-        onReaders={() => openReaders(selectedMessage)} /> : <header className="resident-chat__header">
+        onReaders={() => openReaders(selectedMessage)}
+        onSelectText={() => openMobileDetails(selectedMessage, true)} /> : <header className="resident-chat__header">
         <div className="resident-chat__heading"><strong>Соседи · Малинки</strong><span>{users.length} {users.length % 10 === 1 && users.length % 100 !== 11 ? 'участник' : [2, 3, 4].includes(users.length % 10) && ![12, 13, 14].includes(users.length % 100) ? 'участника' : 'участников'} · общий чат</span></div>
         <button className="resident-chat__tool" aria-label="Поиск по сообщениям" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); setSearch('') }}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
@@ -1003,7 +1004,8 @@ export function ResidentChat({
       </div>
 
       {readersMessage && <ChatReaders message={readersMessage} viewerId={profile.id} users={users} onClose={() => setReadersSelection(null)} />}
-      {detailsMessage && <ChatMobileMessageDetails key={detailsMessage.id} message={detailsMessage} viewerId={profile.id}
+      {detailsMessage && <ChatMobileMessageDetails key={`${detailsMessage.id}:${mobileDetails?.selectText}`} message={detailsMessage} viewerId={profile.id}
+        initialSelectText={mobileDetails?.selectText}
         onClose={() => setMobileDetails(null)} onReply={() => startMobileReply(detailsMessage)}
         onSelect={() => selectMobileMessage(detailsMessage)} onReaders={() => openReaders(detailsMessage)}
         onReact={onReact ? emoji => void reactToMessage(detailsMessage.id, emoji) : undefined}
