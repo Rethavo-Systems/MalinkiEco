@@ -1,0 +1,17 @@
+.request-history-fields {
+  display: grid;
+  grid-template-columns: minmax(100px, 140px) minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.request-history-fields dt { color: var(--ui-muted); }
+.request-history-fields dd { margin: 0; color: var(--ui-text); overflow-wrap: anywhere; }
+html[data-theme] .shell--modern .request-history-card .event-amount { display: block; margin-top: 0; }
+html[data-theme] .shell--modern .request-history-card[data-status=CONFIRMED] .event-badge { color: var(--status-clear); }
+html[data-theme] .shell--modern .request-history-card[data-status=REJECTED] .event-badge { color: var(--status-debt); }
+@media (max-width: 480px) {
+  .request-history-fields { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .request-history-fields dd + dt { margin-top: 7px; }
+}

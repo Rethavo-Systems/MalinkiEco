@@ -28,6 +28,23 @@ html[data-theme] a:focus-visible,html[data-theme] button:focus-visible { outline
 html[data-theme=light] .shell :is(.charge-chip__amount,.charge-chip__meta,.payment-request-card__heading p,.gate-open-button__hint,.brand-lockup .hero-copy,.app-navigation__bottom,.app-navigation__label) { color: var(--ui-muted); }
 html[data-theme=light] .shell .resident-chat__menu-item.is-danger { color: var(--status-debt); }
 html[data-theme=light] .shell .resident-chat__bubble.is-mine .resident-chat__time { color: #526071; }
+html[data-theme=light] .shell--modern .topbar {
+  background: linear-gradient(115deg, #ddd9e6, #d8e4ef);
+  border-bottom-color: #b1bdca;
+  border-radius: 10px;
+}
+html[data-theme=light] :is(.app-navigation__item,.app-navigation__close,.app-menu-toggle),
+html[data-theme=light] .shell--modern .topbar-icon-button {
+  color: #202b36;
+}
+html[data-theme=light] .shell--modern .settings-panel {
+  --ui-muted: #3b4957;
+  --ui-text: #16222e;
+  color: var(--ui-text);
+}
+html[data-theme=light] .shell--modern .settings-panel :is(.settings-toggle-card__description,.settings-push-card__copy p) {
+  color: var(--ui-muted);
+}
 /* Poll result buttons remain legible when voting is disabled. */
 html[data-theme] .shell .poll-option:disabled { opacity: 1; }
 html[data-theme] .maintenance-card { --service-color: var(--ui-warning); --service-bg: var(--ui-warning-bg); }

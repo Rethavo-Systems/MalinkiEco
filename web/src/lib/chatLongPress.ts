@@ -17,13 +17,19 @@ export class ChatLongPress {
 
   start(point: Point, onHold: () => void) {
     this.cancel()
+    this.suppressClickUntil = 0
     this.origin = point
     this.timer = this.clock.setTimer(() => {
-      this.timer = null
-      this.triggered = true
-      this.suppressClickUntil = this.clock.now() + 1000
+      this.markHeld()
       onHold()
     }, 420)
+  }
+
+  markHeld() {
+    if (this.timer !== null) this.clock.clearTimer(this.timer)
+    this.timer = null
+    this.triggered = true
+    this.suppressClickUntil = this.clock.now() + 1000
   }
 
   move(point: Point) {

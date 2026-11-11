@@ -49,6 +49,7 @@ import { SiteFooter } from './components/SiteFooter'
 import { SplashScreen } from './components/SplashScreen'
 import { SupportPanel } from './components/SupportPanel'
 import { useAppGate } from './hooks/useAppGate'
+import { useChatViewport } from './hooks/useChatViewport'
 import { useFirebaseAuthState } from './hooks/useFirebaseAuthState'
 import { useGateStatus } from './hooks/useGateStatus'
 import { useGateAvailability } from './hooks/useGateAvailability'
@@ -255,6 +256,7 @@ async function createCroppedAvatarFile(crop: AvatarCropDraft) {
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>(() => readRequestedTabFromUrl() ?? 'events')
+  const chatViewportRef = useChatViewport(activeTab === 'chat')
   const [pollDraft, setPollDraft] = useState<PollDraft>(INITIAL_POLL_DRAFT)
   const [pollSubmitting, setPollSubmitting] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -1600,7 +1602,7 @@ function App() {
   }
 
   return (
-    <div className={`shell shell--modern ${activeTab === 'chat' ? 'shell--chat' : ''}`}>
+    <div ref={chatViewportRef} className={`shell shell--modern ${activeTab === 'chat' ? 'shell--chat' : ''}`}>
       <div className="ambient ambient-left" />
       <div className="ambient ambient-right" />
 

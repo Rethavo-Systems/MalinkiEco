@@ -103,7 +103,7 @@ html[data-theme=light] .shell:not(.shell--modern) { background: var(--ui-bg); co
 html[data-theme=light] .shell:not(.shell--modern) :is(.hero-card,.auth-card,.panel) { background: var(--ui-surface); color: var(--ui-text); border-color: var(--ui-line); }
 html[data-theme=light] .shell:not(.shell--modern) :is(h1,h2,h3,label,input) { color: var(--ui-text); }
 html[data-theme=light] .shell:not(.shell--modern) input { background: var(--ui-input); }
-@media(max-width:760px) {
+@media (max-width: 760px), (hover: none) and (pointer: coarse), (max-width: 1050px) and (max-height: 520px) and (orientation: landscape) {
   html[data-theme] .shell--modern { padding: 0 12px 18px; }
   html[data-theme] .shell--modern .topbar { min-height: 76px; padding: 10px 0 10px 42px; margin-bottom: 14px; }
   html[data-theme] .shell--modern .balance-chip { min-width: 80px; padding: 7px 10px; }

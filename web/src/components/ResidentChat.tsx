@@ -2,6 +2,7 @@ import { ChatReaders } from './ChatReaders'
 import { canReadVisibleContent } from '../lib/readVisibility'
 import { selectedOwnChatMessage, type ChatReadersSelection } from '../lib/chatReadReceipts'
 import { ChatLongPress } from '../lib/chatLongPress'
+import { currentMobileMessage, isTouchChatInput, type MobileMessageSelection } from '../lib/chatMobileInteraction'
 import { createPortal } from 'react-dom'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -11,9 +12,11 @@ import {
   validateChatFile,
 } from '../lib/chatFilesApi'
 import { useAvatarObjectUrl } from '../hooks/useAvatarObjectUrl'
+import { useTouchChatInteraction } from '../hooks/useTouchChatInteraction'
 import type { UserAvatar } from '../types'
 import { ChatFormatInput, ChatFormattedText } from './ChatFormatting'
 import { ChatAttachments } from './ChatAttachments'
+import { ChatMobileMessageDetails, ChatMobileSelectionBar } from './ChatMobileActions'
 import './ResidentChat.css'
 import './ResidentChatMessenger.css'
 
@@ -142,6 +145,14 @@ export function ResidentChat({
   const [replyingTo, setReplyingTo] = useState<ResidentChatMessage | null>(null)
   const [editingId, setEditingId] = useState('')
   const [editingText, setEditingText] = useState('')
+  const { touch, enableTouch, enableMouse } = useTouchChatInteraction()
+  const [mobileSelection, setMobileSelection] = useState<MobileMessageSelection | null>(null)
+  const [mobileDetails, setMobileDetails] = useState<MobileMessageSelection | null>(null)
+  const [composerEdit, setComposerEdit] = useState<MobileMessageSelection | null>(null)
+  const [composerEditText, setComposerEditText] = useState('')
+  const [savingComposerEdit, setSavingComposerEdit] = useState(false)
+  const composerEditRequest = useRef(false)
+  const mobileDeleteRequest = useRef(false)
   const selectedMenuText = useRef('')
   const menuReturnFocus = useRef<HTMLElement | null>(null)
   const [menu, setMenu] = useState<ChatMenuState | null>(null)
@@ -163,16 +174,24 @@ export function ResidentChat({
 
   const readersMessage = selectedOwnChatMessage(messages, profile.id, readersSelection)
   const ownMenuMessage = menu ? selectedOwnChatMessage(messages, profile.id, { messageId: menu.message.id, viewerId: profile.id }) : null
+  const selectedMessage = currentMobileMessage(messages, profile.id, mobileSelection)
+  const detailsMessage = currentMobileMessage(messages, profile.id, mobileDetails)
+  const composerEditMessage = selectedOwnChatMessage(messages, profile.id, composerEdit)
 
   const openReaders = (message: ResidentChatMessage) => {
     const selection = { messageId: message.id, viewerId: profile.id }
     setReadersSelection(selectedOwnChatMessage(messages, profile.id, selection) ? selection : null)
     setMenu(null)
+    setMobileDetails(null)
   }
 
   useEffect(() => {
     setReadersSelection(null)
     setMenu(null)
+    setMobileSelection(null)
+    setMobileDetails(null)
+    setComposerEdit(null)
+    setComposerEditText('')
   }, [profile.id])
 
   const mentionCandidates = useMemo(
@@ -350,38 +369,6 @@ export function ResidentChat({
   )
 
   useEffect(() => {
-    let frame = 0
-
-    const updateChatHeight = () => {
-      window.cancelAnimationFrame(frame)
-      frame = window.requestAnimationFrame(() => {
-        const root = rootRef.current
-        if (!root) return
-
-        const viewportHeight = window.visualViewport?.height ?? window.innerHeight
-        const isCompact = window.innerWidth <= 640
-        const edgeGap = isCompact ? 8 : 16
-        const chatJumpFootprint = isCompact ? 34 : 40
-        const maximumHeight = Math.max(280, viewportHeight - edgeGap - chatJumpFootprint)
-        const minimumHeight = Math.min(isCompact ? 380 : 460, maximumHeight)
-        const nextHeight = Math.max(minimumHeight, maximumHeight)
-
-        root.style.setProperty('--resident-chat-height', `${Math.round(nextHeight)}px`)
-      })
-    }
-
-    updateChatHeight()
-    window.addEventListener('resize', updateChatHeight)
-    window.visualViewport?.addEventListener('resize', updateChatHeight)
-
-    return () => {
-      window.cancelAnimationFrame(frame)
-      window.removeEventListener('resize', updateChatHeight)
-      window.visualViewport?.removeEventListener('resize', updateChatHeight)
-    }
-  }, [])
-
-  useEffect(() => {
     if (!input.trim()) {
       setSelectedMentionedUsers([])
       setEveryoneMentionActive(false)
@@ -410,39 +397,62 @@ export function ResidentChat({
   }
 
   const openContextMenu = (event: React.MouseEvent<HTMLElement>, message: ResidentChatMessage) => {
+    if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return
     event.preventDefault()
     event.stopPropagation()
+    if (isTouchChatInput(touch, (event.nativeEvent as PointerEvent).pointerType)) {
+      longPressRef.current.markHeld()
+      selectMobileMessage(message)
+      return
+    }
+    enableMouse()
+    setMobileSelection(null)
     menuReturnFocus.current = event.currentTarget
     selectedMenuText.current = window.getSelection()?.toString() ?? ''
     setMenu({ message, x: Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_WIDTH - 8)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - MENU_HEIGHT - 8)) })
   }
 
-  const openTouchMenu = (element: HTMLElement, message: ResidentChatMessage) => {
-    menuReturnFocus.current = element
-    selectedMenuText.current = ''
-    openMenuAt(message, element.getBoundingClientRect(), message.senderId === profile.id)
+  const selectMobileMessage = (message: ResidentChatMessage) => {
+    setMenu(null)
+    setMobileDetails(null)
+    setMobileSelection({ messageId: message.id, viewerId: profile.id })
   }
 
   const startLongPress = (event: React.TouchEvent<HTMLElement>, message: ResidentChatMessage) => {
+    if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return
     if (event.touches.length !== 1) { longPressRef.current.cancel(); return }
-    const element = event.currentTarget
+    enableTouch()
+    if (event.target instanceof Element && event.target.closest('.resident-chat__edit')) return
     const touch = event.touches[0]
-    longPressRef.current.start({ x: touch.clientX, y: touch.clientY }, () => openTouchMenu(element, message))
+    longPressRef.current.start({ x: touch.clientX, y: touch.clientY }, () => selectMobileMessage(message))
   }
 
-  const finishLongPress = (event: React.TouchEvent<HTMLElement>) => {
-    const wasTriggered = longPressRef.current.finish()
-
-    if (wasTriggered) {
-      event.preventDefault()
-      event.stopPropagation()
-    }
+  const finishLongPress = () => {
+    longPressRef.current.finish()
   }
 
   const moveLongPress = (event: React.TouchEvent<HTMLElement>) => {
     if (event.touches.length !== 1) { longPressRef.current.cancel(); return }
     const touch = event.touches[0]
     longPressRef.current.move({ x: touch.clientX, y: touch.clientY })
+  }
+
+  const openMobileDetails = (message: ResidentChatMessage) => {
+    setMenu(null)
+    setActionError('')
+    setMobileDetails({ messageId: message.id, viewerId: profile.id })
+  }
+
+  const handleBubbleClick = (event: React.MouseEvent<HTMLElement>, message: ResidentChatMessage) => {
+    if (!(event.target instanceof Element) || !event.currentTarget.contains(event.target)) return
+    if (!isTouchChatInput(touch, (event.nativeEvent as PointerEvent).pointerType)) return
+    if (event.target.closest('button, a, input, textarea, select, label, [contenteditable]')) return
+    if (selectedMessage) {
+      if (selectedMessage.id === message.id) setMobileSelection(null)
+      else selectMobileMessage(message)
+      return
+    }
+    openMobileDetails(message)
   }
 
   const formatUserPlots = (user: ResidentChatUser) => {
@@ -574,6 +584,8 @@ export function ResidentChat({
   }
 
   const startEdit = (message: ResidentChatMessage) => {
+    if (composerEditRequest.current) return
+    cancelComposerEdit()
     setEditingId(message.id)
     setEditingText(message.text)
     setMenu(null)
@@ -582,6 +594,63 @@ export function ResidentChat({
   const startReply = (message: ResidentChatMessage) => {
     setReplyingTo(message)
     setMenu(null)
+  }
+
+  const startMobileReply = (message: ResidentChatMessage) => {
+    if (composerEditRequest.current) return
+    cancelComposerEdit()
+    setMobileSelection(null)
+    setMobileDetails(null)
+    startReply(message)
+    textareaRef.current?.focus({ preventScroll: true })
+  }
+
+  const startComposerEdit = (message: ResidentChatMessage) => {
+    if (message.senderId !== profile.id || composerEditRequest.current) return
+    if (composerEditMessage?.id !== message.id) {
+      setComposerEdit({ messageId: message.id, viewerId: profile.id })
+      setComposerEditText(message.text)
+    }
+    cancelEdit()
+    setMobileSelection(null)
+    setMobileDetails(null)
+    setEmojiOpen(false)
+    setActionError('')
+    textareaRef.current?.focus({ preventScroll: true })
+  }
+
+  const cancelComposerEdit = () => {
+    setComposerEdit(null)
+    setComposerEditText('')
+  }
+
+  const saveComposerEdit = async () => {
+    if (!composerEditMessage || !composerEditText.trim() || composerEditRequest.current) return
+    composerEditRequest.current = true
+    setSavingComposerEdit(true)
+    setActionError('')
+    try {
+      await onSaveEdit(composerEditMessage.id, composerEditText.trim())
+      cancelComposerEdit()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Не удалось сохранить сообщение.')
+    } finally {
+      composerEditRequest.current = false
+      setSavingComposerEdit(false)
+    }
+  }
+
+  const deleteSelectedMessage = async (message: ResidentChatMessage) => {
+    if (message.senderId !== profile.id || mobileDeleteRequest.current) return
+    mobileDeleteRequest.current = true
+    setActionError('')
+    try {
+      await onDelete(message)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Не удалось удалить сообщение.')
+    } finally {
+      mobileDeleteRequest.current = false
+    }
   }
 
   const cancelEdit = () => {
@@ -614,13 +683,17 @@ export function ResidentChat({
   }
 
   return (
-    <section ref={rootRef} className="panel resident-chat" onClick={() => setMenu(null)}>
-      <header className="resident-chat__header">
+    <section ref={rootRef} className="panel resident-chat" data-mobile-interaction={touch}
+      onClick={() => setMenu(null)} onKeyDown={event => { if (event.key === 'Escape' && !detailsMessage && !readersMessage) setMobileSelection(null) }}>
+      {selectedMessage ? <ChatMobileSelectionBar message={selectedMessage} viewerId={profile.id}
+        onClose={() => setMobileSelection(null)} onReply={() => startMobileReply(selectedMessage)}
+        onEdit={() => startComposerEdit(selectedMessage)} onDelete={() => void deleteSelectedMessage(selectedMessage)}
+        onReaders={() => openReaders(selectedMessage)} /> : <header className="resident-chat__header">
         <div className="resident-chat__heading"><strong>Соседи · Малинки</strong><span>{users.length} {users.length % 10 === 1 && users.length % 100 !== 11 ? 'участник' : [2, 3, 4].includes(users.length % 10) && ![12, 13, 14].includes(users.length % 100) ? 'участника' : 'участников'} · общий чат</span></div>
         <button className="resident-chat__tool" aria-label="Поиск по сообщениям" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); setSearch('') }}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
         </button>
-      </header>
+      </header>}
       {searchOpen && <div className="resident-chat__search"><input autoFocus aria-label="Найти сообщение" placeholder="Поиск по сообщениям и участникам" value={search} onChange={event => setSearch(event.target.value)} /><button onClick={() => { setSearchOpen(false); setSearch('') }}>Закрыть</button></div>}
       {activePinnedMessage && (
         <button
@@ -672,20 +745,39 @@ export function ResidentChat({
               <div
                 id={`chat-message-${message.id}`}
                 key={message.id}
-                className={`resident-chat__message-row ${isMine ? 'is-mine' : 'is-other'} ${grouped ? 'is-grouped' : ''}`}
+                className={`resident-chat__message-row ${isMine ? 'is-mine' : 'is-other'} ${grouped ? 'is-grouped' : ''} ${selectedMessage?.id === message.id ? 'is-selected' : ''}`}
               >
                 {!isMine && <ChatMessageAvatar name={message.senderName} avatar={senderAvatar} />}
                 <article
                   className={`resident-chat__bubble ${isMine ? 'is-mine' : 'is-other'} ${message.isPinned ? 'is-pinned' : ''} ${mentionedMe ? 'is-mentioned' : ''}`}
                   tabIndex={0}
-                  onKeyDown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); menuReturnFocus.current = event.currentTarget; selectedMenuText.current = ''; openMenuAt(message, event.currentTarget.getBoundingClientRect(), isMine) } }}
+                  onKeyDown={event => {
+                    if (touch && event.target !== event.currentTarget) return
+                    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                      event.preventDefault()
+                      if (touch) selectMobileMessage(message)
+                      else {
+                        menuReturnFocus.current = event.currentTarget
+                        selectedMenuText.current = ''
+                        openMenuAt(message, event.currentTarget.getBoundingClientRect(), isMine)
+                      }
+                    }
+                    if (touch && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault()
+                      openMobileDetails(message)
+                    }
+                  }}
+                  onClick={event => handleBubbleClick(event, message)}
                   onContextMenu={(event) => openContextMenu(event, message)}
                   onTouchStart={(event) => startLongPress(event, message)}
                   onTouchEnd={finishLongPress}
                   onTouchCancel={finishLongPress}
                   onTouchMove={moveLongPress}
                   onClickCapture={event => {
-                    if (longPressRef.current.consumeClick()) { event.preventDefault(); event.stopPropagation() }
+                    if (event.target instanceof Node && event.currentTarget.contains(event.target) && longPressRef.current.consumeClick()) {
+                      event.preventDefault()
+                      event.stopPropagation()
+                    }
                   }}
                 >
                 <div className="resident-chat__meta">
@@ -765,7 +857,11 @@ export function ResidentChat({
       </button>
 
       <div className="resident-chat__compose">
-        {replyingTo && (
+        {composerEditMessage && <div className="resident-chat__mobile-editing">
+          <div><strong>Редактирование сообщения</strong><span>{composerEditMessage.text || 'Вложение'}</span></div>
+          <button type="button" aria-label="Отменить редактирование" onClick={cancelComposerEdit} disabled={savingComposerEdit}>×</button>
+        </div>}
+        {!composerEditMessage && replyingTo && (
           <div className="resident-chat__replying">
             <div className="resident-chat__replying-text">
               <strong>
@@ -781,7 +877,7 @@ export function ResidentChat({
         )}
 
         <div className="resident-chat__compose-box" onClick={(event) => event.stopPropagation()}>
-          {selectedFiles.length > 0 && (
+          {!composerEditMessage && selectedFiles.length > 0 && (
             <div className="resident-chat__selected-files">
               {selectedFiles.map((item) => (
                 <SelectedFilePreview key={item.id} item={item} onRemove={() => removeSelectedFile(item.id)} />
@@ -789,7 +885,8 @@ export function ResidentChat({
             </div>
           )}
 
-          <div className="resident-chat__composer-row">
+          <div className={`resident-chat__composer-row${composerEditMessage ? ' is-editing' : ''}`}>
+            {!composerEditMessage && <>
             <input
               ref={fileInputRef}
               type="file"
@@ -810,24 +907,31 @@ export function ResidentChat({
                 <path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.6-9.6a4.1 4.1 0 0 1 5.8 5.8l-9.7 9.7a2.2 2.2 0 0 1-3.1-3.1l8.6-8.6" />
               </svg>
             </button>
+            </>}
 
             <div className="resident-chat__input-wrap">
               <ChatFormatInput
                 textareaRef={textareaRef}
-                value={input}
-                onValueChange={setInput}
-                placeholder="Сообщение"
-                aria-label="Сообщение"
+                value={composerEditMessage ? composerEditText : input}
+                onValueChange={composerEditMessage ? setComposerEditText : setInput}
+                placeholder={composerEditMessage ? 'Текст сообщения' : 'Сообщение'}
+                aria-label={composerEditMessage ? 'Редактировать сообщение' : 'Сообщение'}
+                persistentToolbar={Boolean(composerEditMessage)}
+                formattingContext={composerEditMessage?.id}
+                readOnly={Boolean(composerEditMessage && savingComposerEdit)}
                 onKeyDown={event => {
-                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && window.innerWidth > 640) {
+                  if (composerEditMessage && event.key === 'Escape' && !savingComposerEdit) {
+                    cancelComposerEdit()
+                  }
+                  if (!touch && !composerEditMessage && event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && window.innerWidth > 640) {
                     event.preventDefault()
                     void handleSend().catch(() => undefined)
                   }
                 }}
-                rows={1}
+                rows={composerEditMessage ? 2 : 1}
               />
 
-              {mentionPickerOpen && (
+              {!composerEditMessage && mentionPickerOpen && (
                 <div className="resident-chat__mention-picker">
                   {mentionCandidates.length === 0 ? (
                     <div className="resident-chat__mention-empty">Пока некого отмечать</div>
@@ -866,6 +970,11 @@ export function ResidentChat({
               )}
             </div>
 
+            {composerEditMessage ? <button type="button" className="resident-chat__send-button"
+              onClick={() => void saveComposerEdit()} disabled={savingComposerEdit || !composerEditText.trim()}
+              aria-label="Сохранить изменения сообщения" title="Сохранить">
+              {savingComposerEdit ? <span className="resident-chat__send-loader" aria-hidden="true" /> : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>}
+            </button> : <>
             <button className="resident-chat__emoji-button" aria-label="Добавить эмодзи" aria-expanded={emojiOpen} onClick={() => setEmojiOpen(!emojiOpen)}>☺</button>
             {emojiOpen && <div className="resident-chat__emojis">{['😊','👍','❤️','👋','🌿','🎉','🙏','☀️'].map(emoji => <button key={emoji} onClick={() => {setInput(current => current + emoji); setEmojiOpen(false); textareaRef.current?.focus()}}>{emoji}</button>)}</div>}
             <button
@@ -884,16 +993,22 @@ export function ResidentChat({
                 </svg>
               )}
             </button>
+            </>}
           </div>
 
-          <span className="resident-chat__hint">
+          {!composerEditMessage && <span className="resident-chat__hint">
             Фото, видео и файлы до 25 МБ. Упоминание начинается с @.
-          </span>
+          </span>}
         </div>
       </div>
 
       {readersMessage && <ChatReaders message={readersMessage} viewerId={profile.id} users={users} onClose={() => setReadersSelection(null)} />}
-      {actionError && <div className="chat-action-error" role="alert">{actionError}<button onClick={() => setActionError('')}>Закрыть</button></div>}
+      {detailsMessage && <ChatMobileMessageDetails key={detailsMessage.id} message={detailsMessage} viewerId={profile.id}
+        onClose={() => setMobileDetails(null)} onReply={() => startMobileReply(detailsMessage)}
+        onSelect={() => selectMobileMessage(detailsMessage)} onReaders={() => openReaders(detailsMessage)}
+        onReact={onReact ? emoji => void reactToMessage(detailsMessage.id, emoji) : undefined}
+        reactionBusy={reactionBusy} error={actionError} />}
+      {actionError && !detailsMessage && <div className="chat-action-error" role="alert">{actionError}<button onClick={() => setActionError('')}>Закрыть</button></div>}
       {menu &&
         createPortal(
           <div

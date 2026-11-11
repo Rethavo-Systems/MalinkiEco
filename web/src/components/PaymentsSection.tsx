@@ -3,6 +3,7 @@ import { isChargeClosed } from '../lib/chargeDeadline'
 import { useEffect, useMemo, useState } from 'react'
 import { reservedChargeIds, parsePaymentRubles } from '../lib/paymentSelection'
 import { normalizePlots } from '../lib/plotAccounts'
+import { newestCreatedFirst } from '../lib/requestHistory'
 import type { CommunityEvent, ManualPaymentRequest, PaymentTransferConfig, RemoteUser } from '../types'
 import './PaymentDetails.css'
 
@@ -93,7 +94,7 @@ export function PaymentsSection({
   const availableCharges = useMemo(() => {
     return events.filter(
       (item) => item.type === 'CHARGE' && !isChargeClosed(item, now) && !hiddenChargeIds.has(item.id),
-    )
+    ).sort(newestCreatedFirst)
   }, [events, hiddenChargeIds, now])
   const visibleDetails = useMemo(
     () => paymentDetails(paymentConfig).filter((item) => item.value.trim()),

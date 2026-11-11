@@ -16,7 +16,7 @@ html[data-theme] .shell--modern button.balance-chip {
 html[data-theme] .shell--modern button.balance-chip:hover { filter: brightness(1.07); }
 html[data-theme] .shell--modern button.balance-chip:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
 html[data-theme] .shell--modern .gate-open-button__main svg { width: 22px; height: 22px; stroke-width: 1.25; }
-@media(max-width:760px) {
+@media (max-width: 760px), (hover: none) and (pointer: coarse), (max-width: 1050px) and (max-height: 520px) and (orientation: landscape) {
   html[data-theme] .shell--modern .brand-lockup { flex: 1 1 auto; min-width: 30px; overflow: hidden; }
   html[data-theme] .shell--modern .brand-lockup > div:last-child { min-width: 0; }
   html[data-theme] .shell--modern .brand-lockup h1 { max-width: 100%; }
@@ -46,15 +46,48 @@ html[data-theme] .notice-bar--error { border-color: #bd7480; }
 html[data-theme] .notice-bar--error .notice-symbol { color: #bd7480; }
 html[data-theme] .notice-bar--success .notice-symbol { color: #72a591; }
 @media(max-width:1100px) { html[data-theme] .shell--modern.shell--chat { padding-left: 232px; padding-right: 20px; } }
-@media(max-width:760px) { html[data-theme] .shell--modern.shell--chat { padding: 0 14px 14px; } }
 html[data-theme] .shell--modern .topbar,html[data-theme] .shell--modern.shell--chat .topbar {
-  box-sizing: border-box; width: 100%; max-width: none; min-height: 94px; height: 94px;
-  flex: 0 0 94px; margin: 0 0 18px; padding: 14px 0;
+  box-sizing: border-box; width: 100%; max-width: none; min-height: 94px;
+  flex: 0 0 auto; margin: 0 0 18px; padding: 14px 0;
 }
-@media(max-width:760px) {
+@media (max-width: 760px), (hover: none) and (pointer: coarse), (max-width: 1050px) and (max-height: 520px) and (orientation: landscape) {
   html[data-theme] .shell--modern .topbar,html[data-theme] .shell--modern.shell--chat .topbar {
-    min-height: 82px; height: 82px; flex-basis: 82px; padding: 10px 0 10px 46px; margin-bottom: 12px;
+    min-height: 82px; padding: 10px 8px 10px 46px; margin-bottom: 12px;
   }
+  html[data-theme] .shell--modern.shell--chat {
+    position: fixed;
+    inset: var(--chat-viewport-top, 0px) 0 auto;
+    height: var(--chat-viewport-height, 100dvh);
+    padding: 0 max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left));
+  }
+  html[data-theme] .shell--modern.shell--chat .app-menu-toggle {
+    left: max(10px, env(safe-area-inset-left));
+  }
+  html[data-theme] .shell--modern .resident-chat__compose .chat-format-input textarea {
+    font-size: 16px;
+  }
+  html[data-theme] .shell--modern.shell--chat[data-chat-keyboard] :is(.topbar,.app-menu-toggle,.resident-chat__pinned) {
+    display: none;
+  }
+}
+@media (max-width: 1050px) and (max-height: 520px) and (orientation: landscape), (max-height: 520px) and (orientation: landscape) and (pointer: coarse) {
+  html[data-theme] .shell--modern.shell--chat .topbar {
+    min-height: 56px;
+    padding-block: 5px;
+    margin-bottom: 6px;
+  }
+  html[data-theme] .shell--modern.shell--chat .app-menu-toggle { top: 10px; }
+  html[data-theme] .shell--modern.shell--chat .gate-open-button { min-height: 44px; height: 44px; padding: 6px; }
+  html[data-theme] .shell--modern.shell--chat button.balance-chip { height: auto; min-height: 42px; padding-block: 4px; }
+  html[data-theme] .shell--modern.shell--chat .resident-chat__header { min-height: 44px; padding-block: 3px; }
+  html[data-theme] .shell--modern.shell--chat .resident-chat__tool { height: 36px; width: 36px; }
+  html[data-theme] .shell--modern.shell--chat .resident-chat__pinned {
+    grid-template-columns: max-content minmax(0, 1fr);
+    grid-template-areas: 'count body';
+    padding-block: 6px;
+  }
+  html[data-theme] .shell--modern.shell--chat .resident-chat__pinned-title { display: none; }
+  html[data-theme] .shell--modern.shell--chat .resident-chat__compose { padding-top: 4px; }
 }
 html[data-theme] :is(.events-section,.polls-section,.payments-section,.settings-panel) :is(input:not([type=checkbox]),textarea,select) {
   box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px;

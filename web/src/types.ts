@@ -120,6 +120,7 @@ export type ManualPaymentRequest = {
   status: ManualPaymentStatus
   createdAtClient: number
   reviewedByName: string
+  reviewedAtClient?: number
   reviewReason: string
 }
 
@@ -138,6 +139,7 @@ export type RegistrationRequest = {
   proposedPhone: string
   createdAtClient: number
   reviewedByName: string
+  reviewedAtClient?: number
   reviewReason: string
 }
 

@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { ManualPaymentRequest, RegistrationRequest, RemoteUser, Role } from '../types'
 import { formatRussianPhone } from '../utils'
+import { paymentRequestDescription, paymentRequestHistory, paymentRequestPlots, registrationRequestHistory } from '../lib/requestHistory'
+import './RequestHistory.css'
 
 type OwnerFilter = 'all' | 'debt' | 'overpaid' | 'clear'
 type RequestBucket = 'active' | 'archive'
@@ -31,9 +33,9 @@ function paymentStatusLabel(request: ManualPaymentRequest) {
     case 'PENDING':
       return 'Ожидает подтверждения'
     case 'CONFIRMED':
-      return request.reviewedByName ? `Подтверждено: ${request.reviewedByName}` : 'Подтверждено'
+      return 'Подтверждено'
     case 'REJECTED':
-      return request.reviewedByName ? `Отклонено: ${request.reviewedByName}` : 'Отклонено'
+      return 'Отклонено'
     default:
       return request.status
   }
@@ -58,20 +60,6 @@ function requestTypeLabel(request: RegistrationRequest) {
 
 function ownerRoleLabel(owner: RemoteUser, roleLabel: (role: Role) => string) {
   return owner.isPlaceholder ? 'Не зарегистрирован' : roleLabel(owner.role)
-}
-
-function splitPaymentRequests(requests: ManualPaymentRequest[]) {
-  return {
-    active: requests.filter((request) => request.status === 'PENDING'),
-    archive: requests.filter((request) => request.status !== 'PENDING'),
-  }
-}
-
-function splitRegistrationRequests(requests: RegistrationRequest[]) {
-  return {
-    active: requests.filter((request) => request.status === 'PENDING'),
-    archive: requests.filter((request) => request.status !== 'PENDING'),
-  }
 }
 
 export function OwnersSection({
@@ -102,8 +90,8 @@ export function OwnersSection({
   const [registrationRequestBucket, setRegistrationRequestBucket] = useState<RequestBucket>('active')
   const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>('all')
 
-  const paymentRequestGroups = useMemo(() => splitPaymentRequests(paymentRequests), [paymentRequests])
-  const registrationRequestGroups = useMemo(() => splitRegistrationRequests(registrationRequests), [registrationRequests])
+  const paymentRequestGroups = useMemo(() => paymentRequestHistory(paymentRequests), [paymentRequests])
+  const registrationRequestGroups = useMemo(() => registrationRequestHistory(registrationRequests), [registrationRequests])
 
   const visiblePaymentRequests = paymentRequestGroups[paymentRequestBucket]
   const visibleRegistrationRequests = registrationRequestGroups[registrationRequestBucket]
@@ -178,36 +166,49 @@ export function OwnersSection({
                         : 'В архиве пока нет заявок на оплату.'}
                     </div>
                   ) : (
-                    visiblePaymentRequests.map((request) => (
-                      <article key={request.id} className="event-card">
-                        <div className="event-meta">
-                          <span className="event-badge">{paymentStatusLabel(request)}</span>
-                          <span>{formatDateTime(request.createdAtClient)}</span>
-                        </div>
-                        <h3>{request.userName}</h3>
-                        <p>{request.plotName}</p>
-                        <p>{request.eventTitle || request.purpose || 'Без назначения'}</p>
-                        <strong className="event-amount">{request.amount.toLocaleString('ru-RU')} ₽</strong>
-                        {request.reviewReason && <p>Причина: {request.reviewReason}</p>}
-                        {request.status === 'PENDING' && (
-                          <div className="chat-actions">
-                            <button className="primary-button" type="button" onClick={() => void onConfirmPayment(request)}>
-                              Подтвердить
-                            </button>
-                            <button
-                              className="danger-button"
-                              type="button"
-                              onClick={() => {
-                                const reason = window.prompt('Причина отклонения', request.reviewReason) ?? ''
-                                void onRejectPayment(request, reason)
-                              }}
-                            >
-                              Отклонить
-                            </button>
+                    visiblePaymentRequests.map((request) => {
+                      const description = paymentRequestDescription(request)
+                      const reviewDate = request.reviewedAtClient ?? 0
+                      const showReviewDate = paymentRequestBucket === 'archive' && reviewDate > 0
+                      const displayedDate = showReviewDate ? reviewDate : request.createdAtClient
+                      return (
+                        <article key={request.id} className="event-card request-history-card" data-status={request.status}>
+                          <div className="event-meta">
+                            <span className="event-badge">{paymentStatusLabel(request)}</span>
+                            <span>{showReviewDate ? 'Обработано: ' : 'Заявка: '}{displayedDate > 0 ? formatDateTime(displayedDate) : 'дата не указана'}</span>
                           </div>
-                        )}
-                      </article>
-                    ))
+                          <h3>{request.userName || 'Плательщик не указан'}</h3>
+                          <strong className="event-amount">{request.amount.toLocaleString('ru-RU')} ₽</strong>
+                          <dl className="request-history-fields">
+                            <dt>За кого</dt>
+                            <dd>{paymentRequestPlots(request)}</dd>
+                            <dt>Назначение</dt>
+                            <dd>{description.purpose}</dd>
+                            {description.linkedCharges && <><dt>Сборы</dt><dd>{description.linkedCharges}</dd></>}
+                            {showReviewDate && <><dt>Заявка отправлена</dt><dd>{request.createdAtClient > 0 ? formatDateTime(request.createdAtClient) : 'Дата не указана'}</dd></>}
+                            {request.reviewedByName && <><dt>Проверяющий</dt><dd>{request.reviewedByName}</dd></>}
+                            {request.reviewReason && <><dt>Причина отклонения</dt><dd>{request.reviewReason}</dd></>}
+                          </dl>
+                          {request.status === 'PENDING' && (
+                            <div className="chat-actions">
+                              <button className="primary-button" type="button" onClick={() => void onConfirmPayment(request)}>
+                                Подтвердить
+                              </button>
+                              <button
+                                className="danger-button"
+                                type="button"
+                                onClick={() => {
+                                  const reason = window.prompt('Причина отклонения', request.reviewReason)
+                                  if (reason !== null) void onRejectPayment(request, reason)
+                                }}
+                              >
+                                Отклонить
+                              </button>
+                            </div>
+                          )}
+                        </article>
+                      )
+                    })
                   )}
                 </div>
               </div>
@@ -271,7 +272,7 @@ export function OwnersSection({
                       <article key={request.id} className="event-card">
                         <div className="event-meta">
                           <span className="event-badge">{registrationStatusLabel(request)}</span>
-                          <span>{formatDateTime(request.createdAtClient)}</span>
+                          <span>{registrationRequestBucket === 'archive' && Number(request.reviewedAtClient) > 0 ? `Обработано: ${formatDateTime(request.reviewedAtClient!)}` : `Заявка: ${request.createdAtClient > 0 ? formatDateTime(request.createdAtClient) : 'дата не указана'}`}</span>
                         </div>
                         <h3>{requestTypeLabel(request)}</h3>
                         <p>{request.authEmail || request.login}</p>
@@ -304,8 +305,8 @@ export function OwnersSection({
                               className="danger-button"
                               type="button"
                               onClick={() => {
-                                const reason = window.prompt('Причина отклонения', request.reviewReason) ?? ''
-                                void onRejectRegistration(request, reason)
+                                const reason = window.prompt('Причина отклонения', request.reviewReason)
+                                if (reason !== null) void onRejectRegistration(request, reason)
                               }}
                             >
                               Отклонить

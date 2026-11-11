@@ -58,3 +58,24 @@ test('a quick tap and later intentional taps are not suppressed', () => {
   elapse(801)
   assert.equal(control.consumeClick(), false)
 })
+
+test('a native touch context menu cancels the timer and suppresses the release click', () => {
+  const { control, hold } = gesture()
+  let timerActions = 0
+  control.start({ x: 10, y: 10 }, () => timerActions++)
+  control.markHeld()
+  hold()
+  assert.equal(timerActions, 0)
+  assert.equal(control.finish(), true)
+  assert.equal(control.consumeClick(), true)
+})
+
+test('a new intentional tap is accepted even if the browser omitted the release click', () => {
+  const { control, hold } = gesture()
+  control.start({ x: 0, y: 0 }, () => {})
+  hold()
+  control.finish()
+  control.start({ x: 5, y: 5 }, () => {})
+  assert.equal(control.finish(), false)
+  assert.equal(control.consumeClick(), false)
+})

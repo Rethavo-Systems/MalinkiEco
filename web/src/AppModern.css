@@ -21,7 +21,7 @@
 .app-navigation-drawer::backdrop { background: #030b16aa; backdrop-filter: blur(3px); }
 .app-navigation__drawer-inner { min-height: 100%; display: flex; flex-direction: column; padding: 28px 14px; }
 .app-navigation__close { margin-left: auto; border: 0; background: transparent; color: #94a7be; font-size: 28px; cursor: pointer; }
-.shell--modern .topbar { width: 100%; max-width: 1400px; min-height: 94px; padding: 16px 0; margin-bottom: 20px; border: 0; border-bottom: 1px solid var(--app-line); border-radius: 0; background: transparent; box-shadow: none; gap: 20px; }
+.shell--modern .topbar { width: 100%; max-width: 1400px; min-height: 94px; padding: 16px 0; margin-bottom: 20px; border: 0; border-bottom: 1px solid var(--app-line); border-radius: 0; background: transparent; box-shadow: none; flex-direction: row; align-items: center; gap: 20px; }
 .shell--modern .brand-lockup { gap: 12px; min-width: 0; }
 .shell--modern .brand-lockup h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.2px; }
 .shell--modern .brand-title-row { display: none; }
@@ -65,7 +65,7 @@
   .app-navigation__brand strong { font-size: 17px; }
   .shell--modern .topbar-actions, .shell--modern .topbar-control-stack { gap: 8px; }
 }
-@media (max-width: 760px) {
+@media (max-width: 760px), (hover: none) and (pointer: coarse), (max-width: 1050px) and (max-height: 520px) and (orientation: landscape) {
   .shell.shell--modern { padding: 0 12px 20px; }
   .app-navigation { display: none; }
   .app-menu-toggle { position: absolute; top: 24px; left: 14px; display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; color: #b5c7dc; z-index: 6; cursor: pointer; }

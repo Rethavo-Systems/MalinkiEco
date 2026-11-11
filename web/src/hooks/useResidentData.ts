@@ -14,6 +14,7 @@ import {
 import { EMPTY_PAYMENT_CONFIG } from '../constants'
 import { db, firebaseSetup } from '../lib/firebase'
 import { PLOTS_COLLECTION, buildOwnersDirectory, normalizePlotName } from '../lib/plotAccounts'
+import { newestCreatedFirst } from '../lib/requestHistory'
 import type {
   AuditLogEntry,
   ChatAttachment,
@@ -98,6 +99,7 @@ function toManualPaymentRequest(item: QueryDocumentSnapshot<DocumentData>, statu
     status: statusFallback ?? (String(data.status ?? 'PENDING') as ManualPaymentStatus),
     createdAtClient: extractCreatedAt(data.createdAt, data.createdAtClient),
     reviewedByName: String(data.reviewedByName ?? ''),
+    reviewedAtClient: extractCreatedAt(data.reviewedAt, data.reviewedAtClient),
     reviewReason: String(data.reviewReason ?? ''),
   }
 }
@@ -319,9 +321,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
                 requests.forEach((request) => mergedRequests.set(request.id, request))
               })
               setPaymentRequests(
-                Array.from(mergedRequests.values()).sort(
-                  (left, right) => Number(right.createdAtClient ?? 0) - Number(left.createdAtClient ?? 0),
-                ),
+                Array.from(mergedRequests.values()).sort(newestCreatedFirst),
               )
             },
           ),
@@ -356,6 +356,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
               status: String(data.status ?? 'PENDING') as RegistrationRequestStatus,
               createdAtClient: extractCreatedAt(data.createdAt, data.createdAtClient),
               reviewedByName: String(data.reviewedByName ?? ''),
+              reviewedAtClient: extractCreatedAt(data.reviewedAt, data.reviewedAtClient),
               reviewReason: String(data.reviewReason ?? ''),
             }
           })
@@ -388,6 +389,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
               status: 'PENDING',
               createdAtClient: extractCreatedAt(data.createdAt, data.createdAtClient),
               reviewedByName: String(data.reviewedByName ?? ''),
+              reviewedAtClient: extractCreatedAt(data.reviewedAt, data.reviewedAtClient),
               reviewReason: String(data.reviewReason ?? ''),
             }
           })
@@ -418,7 +420,7 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
                 createdAtClient: extractCreatedAt(data.createdAt, data.createdAtClient),
               }
             })
-            .sort((left, right) => right.createdAtClient - left.createdAtClient)
+            .sort(newestCreatedFirst)
           setAuditLogs(nextLogs)
         },
       )
