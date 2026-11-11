@@ -13,7 +13,6 @@ type MessageActions = {
   onEdit: () => void
   onDelete: () => void
   onReaders: () => void
-  onSelectText: () => void
 }
 
 const icons = {
@@ -22,7 +21,6 @@ const icons = {
   edit: 'm4 16 11-11 4 4L8 20H4zm9-9 4 4',
   delete: 'M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7',
   eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6',
-  text: 'M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4M8 9h8m-4 0v7',
 }
 
 function ActionIcon({ name }: { name: keyof typeof icons }) {
@@ -35,7 +33,7 @@ function plainText(parts: FormattedPart[]): string {
 
 const messageDate = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' })
 
-export function ChatMobileSelectionBar({ message, viewerId, onClose, onReply, onEdit, onDelete, onReaders, onSelectText }: MessageActions) {
+export function ChatMobileSelectionBar({ message, viewerId, onClose, onReply, onEdit, onDelete, onReaders }: MessageActions) {
   const permissions = mobileMessagePermissions(message, viewerId)
   return (
     <div className="chat-mobile-selection" role="toolbar" aria-label="Действия с выбранным сообщением">
@@ -43,12 +41,6 @@ export function ChatMobileSelectionBar({ message, viewerId, onClose, onReply, on
         <ActionIcon name="close" />
       </button>
       <span className="chat-mobile-selection__label">Сообщение</span>
-      {message.text.trim() && (
-        <button type="button" className="chat-mobile-selection__text" aria-label="Выделить текст" title="Выделить текст" onClick={onSelectText}>
-          <ActionIcon name="text" />
-          <span className="chat-mobile-selection__text-label">Текст</span>
-        </button>
-      )}
       <button type="button" aria-label="Ответить на выбранное сообщение" title="Ответить" onClick={onReply}>
         <ActionIcon name="reply" />
       </button>
@@ -71,7 +63,7 @@ export function ChatMobileSelectionBar({ message, viewerId, onClose, onReply, on
   )
 }
 
-export function ChatMobileMessageDetails({ message, viewerId, onClose, onReply, onSelect, onReaders, onReact, reactionBusy, error, initialSelectText = false }: {
+export function ChatMobileMessageDetails({ message, viewerId, onClose, onReply, onSelect, onReaders, onReact, reactionBusy, error }: {
   message: ResidentChatMessage
   viewerId: string
   onClose: () => void
@@ -81,11 +73,10 @@ export function ChatMobileMessageDetails({ message, viewerId, onClose, onReply, 
   onReact?: (emoji: string) => void
   reactionBusy: boolean
   error: string
-  initialSelectText?: boolean
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const textArea = useRef<HTMLTextAreaElement>(null)
-  const [selectText, setSelectText] = useState(initialSelectText)
+  const [selectText, setSelectText] = useState(false)
   const [copyStatus, setCopyStatus] = useState('')
   const own = mobileMessagePermissions(message, viewerId).canViewReaders
   const text = selectText ? plainText(parseChatFormatting(message.text)) : ''
@@ -107,7 +98,7 @@ export function ChatMobileMessageDetails({ message, viewerId, onClose, onReply, 
   return (
     <dialog
       className="chat-mobile-details"
-      aria-label={initialSelectText ? 'Выделение текста' : 'Сообщение и реакции'}
+      aria-label="Сообщение и реакции"
       ref={element => {
         dialog.current = element
         if (element && !element.open) element.showModal()
@@ -123,11 +114,11 @@ export function ChatMobileMessageDetails({ message, viewerId, onClose, onReply, 
             <strong>{message.senderName}{message.senderPlotName ? ` · ${message.senderPlotName}` : ''}</strong>
             <span>{sentAt}{message.updatedAtClient > 0 ? ' · изменено' : ''}</span>
           </div>
-          <button type="button" aria-label={initialSelectText ? 'Закрыть выделение текста' : 'Закрыть сведения о сообщении'} onClick={() => dialog.current?.close()}>
+          <button type="button" aria-label="Закрыть сведения о сообщении" onClick={() => dialog.current?.close()}>
             <ActionIcon name="close" />
           </button>
         </header>
-        {onReact && !initialSelectText && (
+        {onReact && (
           <div className="chat-mobile-details__reactions" role="group" aria-label="Реакция на сообщение">
             {['👍', '❤️', '😂', '🎉', '🙏', '👎'].map(emoji => (
               <button
@@ -152,19 +143,15 @@ export function ChatMobileMessageDetails({ message, viewerId, onClose, onReply, 
             {copyStatus && <p role="status">{copyStatus}</p>}
           </div>
         ) : message.text && <p className="chat-mobile-details__text"><ChatFormattedText text={message.text} /></p>}
-        {!initialSelectText && (
-          <>
-            {message.attachments.length > 0 && <p className="chat-mobile-details__files">Вложений: {message.attachments.length}</p>}
-            <div className="chat-mobile-details__actions">
-              <button type="button" onClick={() => { dialog.current?.close(); onReply() }}>
-                <ActionIcon name="reply" />Ответить
-              </button>
-              <button type="button" onClick={onSelect}>Выделить сообщение</button>
-              {message.text && !selectText && <button type="button" onClick={() => setSelectText(true)}>Выделить текст</button>}
-              {own && <button type="button" onClick={onReaders}><ActionIcon name="eye" />Кто прочитал</button>}
-            </div>
-          </>
-        )}
+        {message.attachments.length > 0 && <p className="chat-mobile-details__files">Вложений: {message.attachments.length}</p>}
+        <div className="chat-mobile-details__actions">
+          <button type="button" onClick={() => { dialog.current?.close(); onReply() }}>
+            <ActionIcon name="reply" />Ответить
+          </button>
+          <button type="button" onClick={onSelect}>Выделить сообщение</button>
+          {message.text && !selectText && <button type="button" onClick={() => setSelectText(true)}>Выделить текст</button>}
+          {own && <button type="button" onClick={onReaders}><ActionIcon name="eye" />Кто прочитал</button>}
+        </div>
       </div>
     </dialog>
   )

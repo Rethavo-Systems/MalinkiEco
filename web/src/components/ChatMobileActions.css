@@ -5,7 +5,9 @@
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
-.resident-chat[data-mobile-interaction=true] .resident-chat__bubble textarea {
+.resident-chat[data-mobile-interaction=true] .resident-chat__bubble textarea,
+.resident-chat[data-mobile-interaction=true] .resident-chat__bubble[data-text-selectable=true] .resident-chat__text,
+.resident-chat[data-mobile-interaction=true] .resident-chat__bubble[data-text-selectable=true] .resident-chat__text * {
   user-select: text;
   -webkit-user-select: text;
   -webkit-touch-callout: default;
@@ -18,15 +20,7 @@
   padding: 4px 8px; color: var(--ui-text); background: var(--ui-side);
   border-bottom: 1px solid var(--ui-line);
 }
-.chat-mobile-selection__label {
-  min-width: 0;
-  margin-right: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  font-weight: 500;
-}
+.chat-mobile-selection__label { min-width: 0; margin-right: auto; font-size: 14px; font-weight: 500; }
 .chat-mobile-selection button,.chat-mobile-details header button {
   display: grid; place-items: center; flex: 0 0 38px; width: 38px; height: 40px;
   padding: 8px; border: 0; border-radius: 8px; color: var(--ui-text); background: transparent;
@@ -35,17 +29,6 @@
 .chat-mobile-selection button.is-danger { color: var(--status-debt); }
 .chat-mobile-selection button:focus-visible,.chat-mobile-details button:focus-visible { outline: 2px solid var(--ui-blue); outline-offset: -2px; }
 .chat-mobile-selection button:active { background: var(--ui-active); }
-.chat-mobile-selection__text-label { display: none; }
-@media (min-width: 440px) {
-  .chat-mobile-selection .chat-mobile-selection__text {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: 5px;
-    width: auto;
-  }
-  .chat-mobile-selection__text-label { display: inline; font-size: 13px; }
-}
 dialog.chat-mobile-details {
   position: fixed; inset: auto 0 0; margin: 0 auto; width: min(540px,100%); max-width: 100%;
   max-height: min(80dvh,600px); padding: 0; overflow-y: auto; border: 1px solid var(--ui-line);

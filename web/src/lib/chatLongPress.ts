@@ -16,13 +16,17 @@ export class ChatLongPress {
   constructor(clock: Clock = { now: Date.now, setTimer: setTimeout, clearTimer: clearTimeout }) { this.clock = clock }
 
   start(point: Point, onHold: () => void) {
-    this.cancel()
-    this.suppressClickUntil = 0
+    this.reset()
     this.origin = point
     this.timer = this.clock.setTimer(() => {
       this.markHeld()
       onHold()
     }, 420)
+  }
+
+  reset() {
+    this.cancel()
+    this.suppressClickUntil = 0
   }
 
   markHeld() {

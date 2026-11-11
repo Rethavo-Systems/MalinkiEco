@@ -79,3 +79,16 @@ test('a new intentional tap is accepted even if the browser omitted the release 
   assert.equal(control.finish(), false)
   assert.equal(control.consumeClick(), false)
 })
+
+test('native text selection can take over after the message hold without inheriting its click guard', () => {
+  const { control, hold } = gesture()
+  let selections = 0
+  control.start({ x: 10, y: 10 }, () => selections++)
+  hold()
+  assert.equal(control.finish(), true)
+  control.reset()
+  hold()
+  assert.equal(selections, 1)
+  assert.equal(control.finish(), false)
+  assert.equal(control.consumeClick(), false)
+})
