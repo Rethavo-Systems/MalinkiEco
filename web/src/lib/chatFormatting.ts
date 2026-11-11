@@ -25,6 +25,18 @@ export function parseChatFormatting(text: string, depth = 0): FormattedPart[] {
   return result
 }
 
+function plainText(parts: FormattedPart[]): string {
+  return parts.map(part => 'text' in part ? part.text : plainText(part.children)).join('')
+}
+
+export function plainChatText(text: string): string {
+  return plainText(parseChatFormatting(text))
+}
+
+export function chatSelectionCopyText(messages: readonly { text: string }[]): string {
+  return messages.map(message => plainChatText(message.text)).filter(text => text.trim()).join('\n\n')
+}
+
 export function formatChatSelection(text: string, start: number, end: number, mark: string) {
   if (start === end) return { text, start, end }
   if (text.slice(Math.max(0, start - mark.length), start) === mark && text.slice(end, end + mark.length) === mark) {

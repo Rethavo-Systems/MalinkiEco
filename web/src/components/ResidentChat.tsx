@@ -2,7 +2,15 @@ import { ChatReaders } from './ChatReaders'
 import { canReadVisibleContent } from '../lib/readVisibility'
 import { selectedOwnChatMessage, type ChatReadersSelection } from '../lib/chatReadReceipts'
 import { ChatLongPress } from '../lib/chatLongPress'
-import { currentMobileMessage, isTouchChatInput, type MobileMessageSelection } from '../lib/chatMobileInteraction'
+import {
+  currentMobileMessage,
+  currentMobileMessages,
+  isTouchChatInput,
+  updateMobileMessageGroup,
+  type MobileMessageGroupSelection,
+  type MobileMessageSelection,
+} from '../lib/chatMobileInteraction'
+import { chatSelectionCopyText } from '../lib/chatFormatting'
 import { createPortal } from 'react-dom'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -16,7 +24,7 @@ import { useTouchChatInteraction } from '../hooks/useTouchChatInteraction'
 import type { UserAvatar } from '../types'
 import { ChatFormatInput, ChatFormattedText } from './ChatFormatting'
 import { ChatAttachments } from './ChatAttachments'
-import { ChatMobileMessageDetails, ChatMobileSelectionBar } from './ChatMobileActions'
+import { ChatMobileMessageDetails, ChatMobileMessageToggle, ChatMobileSelectionBar } from './ChatMobileActions'
 import './ResidentChat.css'
 import './ResidentChatMessenger.css'
 
@@ -146,7 +154,7 @@ export function ResidentChat({
   const [editingId, setEditingId] = useState('')
   const [editingText, setEditingText] = useState('')
   const { touch, enableTouch, enableMouse } = useTouchChatInteraction()
-  const [mobileSelection, setMobileSelection] = useState<MobileMessageSelection | null>(null)
+  const [mobileSelection, setMobileSelection] = useState<MobileMessageGroupSelection | null>(null)
   const [mobileDetails, setMobileDetails] = useState<MobileMessageSelection | null>(null)
   const [messagePressActive, setMessagePressActive] = useState(false)
   const [composerEdit, setComposerEdit] = useState<MobileMessageSelection | null>(null)
@@ -176,7 +184,10 @@ export function ResidentChat({
 
   const readersMessage = selectedOwnChatMessage(messages, profile.id, readersSelection)
   const ownMenuMessage = menu ? selectedOwnChatMessage(messages, profile.id, { messageId: menu.message.id, viewerId: profile.id }) : null
-  const selectedMessage = currentMobileMessage(messages, profile.id, mobileSelection)
+  const activeMobileSelection = touch && mobileSelection?.viewerId === profile.id ? mobileSelection : null
+  const selectedMessages = useMemo(() => currentMobileMessages(messages, profile.id, activeMobileSelection), [messages, profile.id, activeMobileSelection])
+  const selectionCopyText = useMemo(() => chatSelectionCopyText(selectedMessages), [selectedMessages])
+  const selectionMode = selectedMessages.length > 0
   const detailsMessage = currentMobileMessage(messages, profile.id, mobileDetails)
   const composerEditMessage = selectedOwnChatMessage(messages, profile.id, composerEdit)
 
@@ -401,7 +412,7 @@ export function ResidentChat({
     setMenu({ message, x: nextX, y: nextY })
   }
 
-  const canSelectInlineText = (messageId: string) => touch && selectedMessage?.id === messageId && !messagePressActive
+  const canSelectInlineText = (messageId: string) => Boolean(activeMobileSelection?.messageIds.has(messageId) && !messagePressActive)
 
   const isNativeTextGesture = (messageId: string) => nativeTextGesture.current === messageId && canSelectInlineText(messageId)
 
@@ -428,9 +439,27 @@ export function ResidentChat({
   }
 
   const selectMobileMessage = (message: ResidentChatMessage) => {
+    enableTouch()
     setMenu(null)
     setMobileDetails(null)
-    setMobileSelection({ messageId: message.id, viewerId: profile.id })
+    setMobileSelection(current => updateMobileMessageGroup(current, profile.id, message.id, true))
+  }
+
+  const toggleMobileMessage = (message: ResidentChatMessage) => {
+    setMobileSelection(current => updateMobileMessageGroup(
+      current, profile.id, message.id, !(current?.viewerId === profile.id && current.messageIds.has(message.id)),
+    ))
+  }
+
+  const copySelectedMessages = async () => {
+    if (!selectionCopyText) return
+    setActionError('')
+    try {
+      await navigator.clipboard.writeText(selectionCopyText)
+      setMobileSelection(current => current === activeMobileSelection ? null : current)
+    } catch {
+      setActionError('Не удалось скопировать сообщения. Попробуйте ещё раз.')
+    }
   }
 
   const startLongPress = (event: React.TouchEvent<HTMLElement>, message: ResidentChatMessage) => {
@@ -475,13 +504,7 @@ export function ResidentChat({
     if (!(event.target instanceof Element) || !event.currentTarget.contains(event.target)) return
     if (!isTouchChatInput(touch, (event.nativeEvent as PointerEvent).pointerType)) return
     if (event.target.closest('button, a, input, textarea, select, label, [contenteditable]')) return
-    if (isNativeTextGesture(message.id)) return
-    if (selectedMessage) {
-      if (selectedMessage.id === message.id) setMobileSelection(null)
-      else selectMobileMessage(message)
-      return
-    }
-    openMobileDetails(message)
+    if (!selectionMode) openMobileDetails(message)
   }
 
   const formatUserPlots = (user: ResidentChatUser) => {
@@ -675,6 +698,7 @@ export function ResidentChat({
     setActionError('')
     try {
       await onDelete(message)
+      setMobileSelection(current => updateMobileMessageGroup(current, profile.id, message.id, false))
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Не удалось удалить сообщение.')
     } finally {
@@ -714,10 +738,10 @@ export function ResidentChat({
   return (
     <section ref={rootRef} className="panel resident-chat" data-mobile-interaction={touch}
       onClick={() => setMenu(null)} onKeyDown={event => { if (event.key === 'Escape' && !detailsMessage && !readersMessage) setMobileSelection(null) }}>
-      {selectedMessage ? <ChatMobileSelectionBar message={selectedMessage} viewerId={profile.id}
-        onClose={() => setMobileSelection(null)} onReply={() => startMobileReply(selectedMessage)}
-        onEdit={() => startComposerEdit(selectedMessage)} onDelete={() => void deleteSelectedMessage(selectedMessage)}
-        onReaders={() => openReaders(selectedMessage)} /> : <header className="resident-chat__header">
+      {selectionMode ? <ChatMobileSelectionBar messages={selectedMessages} viewerId={profile.id} canCopy={Boolean(selectionCopyText)}
+        onClose={() => setMobileSelection(null)} onCopy={() => void copySelectedMessages()} onReply={startMobileReply}
+        onEdit={startComposerEdit} onDelete={message => void deleteSelectedMessage(message)}
+        onReaders={openReaders} /> : <header className="resident-chat__header">
         <div className="resident-chat__heading"><strong>Соседи · Малинки</strong><span>{users.length} {users.length % 10 === 1 && users.length % 100 !== 11 ? 'участник' : [2, 3, 4].includes(users.length % 10) && ![12, 13, 14].includes(users.length % 100) ? 'участника' : 'участников'} · общий чат</span></div>
         <button className="resident-chat__tool" aria-label="Поиск по сообщениям" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); setSearch('') }}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
@@ -767,6 +791,7 @@ export function ResidentChat({
             const previous = visibleMessages[index - 1]
             const newDay = !previous || new Date(previous.createdAtClient).toDateString() !== new Date(message.createdAtClient).toDateString()
             const grouped = !newDay && previous.senderId === message.senderId && message.createdAtClient - previous.createdAtClient < 300_000
+            const isSelected = activeMobileSelection?.messageIds.has(message.id) ?? false
 
             return (
               <Fragment key={message.id}>
@@ -774,9 +799,10 @@ export function ResidentChat({
               <div
                 id={`chat-message-${message.id}`}
                 key={message.id}
-                className={`resident-chat__message-row ${isMine ? 'is-mine' : 'is-other'} ${grouped ? 'is-grouped' : ''} ${selectedMessage?.id === message.id ? 'is-selected' : ''}`}
+                className={`resident-chat__message-row ${isMine ? 'is-mine' : 'is-other'} ${grouped ? 'is-grouped' : ''} ${isSelected ? 'is-selected' : ''}`}
               >
-                {!isMine && <ChatMessageAvatar name={message.senderName} avatar={senderAvatar} />}
+                {selectionMode ? <ChatMobileMessageToggle selected={isSelected} onClick={() => toggleMobileMessage(message)} />
+                  : !isMine && <ChatMessageAvatar name={message.senderName} avatar={senderAvatar} />}
                 <article
                   className={`resident-chat__bubble ${isMine ? 'is-mine' : 'is-other'} ${message.isPinned ? 'is-pinned' : ''} ${mentionedMe ? 'is-mentioned' : ''}`}
                   data-text-selectable={canSelectInlineText(message.id)}
@@ -794,7 +820,8 @@ export function ResidentChat({
                     }
                     if (touch && (event.key === 'Enter' || event.key === ' ')) {
                       event.preventDefault()
-                      openMobileDetails(message)
+                      if (selectionMode) toggleMobileMessage(message)
+                      else openMobileDetails(message)
                     }
                   }}
                   onClick={event => handleBubbleClick(event, message)}
@@ -804,10 +831,13 @@ export function ResidentChat({
                   onTouchCancel={finishLongPress}
                   onTouchMove={moveLongPress}
                   onClickCapture={event => {
-                    if (!isNativeTextGesture(message.id) && event.target instanceof Node && event.currentTarget.contains(event.target) && longPressRef.current.consumeClick()) {
-                      event.preventDefault()
-                      event.stopPropagation()
-                    }
+                    if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target) || isNativeTextGesture(message.id)) return
+                    const held = longPressRef.current.consumeClick()
+                    const selecting = selectionMode && isTouchChatInput(touch, (event.nativeEvent as PointerEvent).pointerType)
+                    if (!held && !selecting) return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    if (selecting && !held) toggleMobileMessage(message)
                   }}
                 >
                 <div className="resident-chat__meta">

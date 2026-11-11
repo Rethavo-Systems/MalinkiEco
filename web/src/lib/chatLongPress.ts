@@ -13,7 +13,11 @@ export class ChatLongPress {
   private triggered = false
   private suppressClickUntil = 0
   private clock: Clock
-  constructor(clock: Clock = { now: Date.now, setTimer: setTimeout, clearTimer: clearTimeout }) { this.clock = clock }
+  constructor(clock: Clock = {
+    now: Date.now,
+    setTimer: (callback, delay) => setTimeout(callback, delay),
+    clearTimer: timer => clearTimeout(timer),
+  }) { this.clock = clock }
 
   start(point: Point, onHold: () => void) {
     this.reset()
