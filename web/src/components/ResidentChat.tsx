@@ -24,7 +24,7 @@ import { useTouchChatInteraction } from '../hooks/useTouchChatInteraction'
 import type { UserAvatar } from '../types'
 import { ChatFormatInput, ChatFormattedText } from './ChatFormatting'
 import { ChatAttachments } from './ChatAttachments'
-import { ChatMobileMessageDetails, ChatMobileMessageToggle, ChatMobileSelectionBar } from './ChatMobileActions'
+import { ChatMobileMessageMenu, ChatMobileMessageToggle, ChatMobileSelectionBar, type MobileMenuAnchor } from './ChatMobileActions'
 import './ResidentChat.css'
 import './ResidentChatMessenger.css'
 
@@ -155,7 +155,7 @@ export function ResidentChat({
   const [editingText, setEditingText] = useState('')
   const { touch, enableTouch, enableMouse } = useTouchChatInteraction()
   const [mobileSelection, setMobileSelection] = useState<MobileMessageGroupSelection | null>(null)
-  const [mobileDetails, setMobileDetails] = useState<MobileMessageSelection | null>(null)
+  const [mobileMenu, setMobileMenu] = useState<(MobileMessageSelection & { anchor: MobileMenuAnchor }) | null>(null)
   const [messagePressActive, setMessagePressActive] = useState(false)
   const [composerEdit, setComposerEdit] = useState<MobileMessageSelection | null>(null)
   const [composerEditText, setComposerEditText] = useState('')
@@ -188,21 +188,21 @@ export function ResidentChat({
   const selectedMessages = useMemo(() => currentMobileMessages(messages, profile.id, activeMobileSelection), [messages, profile.id, activeMobileSelection])
   const selectionCopyText = useMemo(() => chatSelectionCopyText(selectedMessages), [selectedMessages])
   const selectionMode = selectedMessages.length > 0
-  const detailsMessage = currentMobileMessage(messages, profile.id, mobileDetails)
+  const mobileMenuMessage = currentMobileMessage(messages, profile.id, mobileMenu)
   const composerEditMessage = selectedOwnChatMessage(messages, profile.id, composerEdit)
 
   const openReaders = (message: ResidentChatMessage) => {
     const selection = { messageId: message.id, viewerId: profile.id }
     setReadersSelection(selectedOwnChatMessage(messages, profile.id, selection) ? selection : null)
     setMenu(null)
-    setMobileDetails(null)
+    setMobileMenu(null)
   }
 
   useEffect(() => {
     setReadersSelection(null)
     setMenu(null)
     setMobileSelection(null)
-    setMobileDetails(null)
+    setMobileMenu(null)
     setMessagePressActive(false)
     nativeTextGesture.current = null
     longPressRef.current.reset()
@@ -441,7 +441,7 @@ export function ResidentChat({
   const selectMobileMessage = (message: ResidentChatMessage) => {
     enableTouch()
     setMenu(null)
-    setMobileDetails(null)
+    setMobileMenu(null)
     setMobileSelection(current => updateMobileMessageGroup(current, profile.id, message.id, true))
   }
 
@@ -494,18 +494,23 @@ export function ResidentChat({
     longPressRef.current.move({ x: touch.clientX, y: touch.clientY })
   }
 
-  const openMobileDetails = (message: ResidentChatMessage) => {
+  const openMobileMenu = (message: ResidentChatMessage, bubble: HTMLElement, tapY?: number) => {
+    const rect = bubble.getBoundingClientRect()
+    const offsetY = tapY !== undefined ? tapY - rect.top : rect.height / 2
     setMenu(null)
     setActionError('')
-    setMobileDetails({ messageId: message.id, viewerId: profile.id })
+    setMobileMenu({ messageId: message.id, viewerId: profile.id, anchor: { bubble, offsetY } })
   }
 
   const handleBubbleClick = (event: React.MouseEvent<HTMLElement>, message: ResidentChatMessage) => {
     if (!(event.target instanceof Element) || !event.currentTarget.contains(event.target)) return
     if (!isTouchChatInput(touch, (event.nativeEvent as PointerEvent).pointerType)) return
     if (event.target.closest('button, a, input, textarea, select, label, [contenteditable]')) return
-    if (!selectionMode) openMobileDetails(message)
+    if (!selectionMode) openMobileMenu(message, event.currentTarget, event.clientY)
   }
+
+  const isBlankChatSpace = (target: EventTarget, list: HTMLElement) => target instanceof Element && list.contains(target)
+    && !target.closest('.resident-chat__bubble, button, a, input, textarea, select, label, [contenteditable]')
 
   const formatUserPlots = (user: ResidentChatUser) => {
     const normalizedPlots = user.plots
@@ -652,7 +657,7 @@ export function ResidentChat({
     if (composerEditRequest.current) return
     cancelComposerEdit()
     setMobileSelection(null)
-    setMobileDetails(null)
+    setMobileMenu(null)
     startReply(message)
     textareaRef.current?.focus({ preventScroll: true })
   }
@@ -665,7 +670,7 @@ export function ResidentChat({
     }
     cancelEdit()
     setMobileSelection(null)
-    setMobileDetails(null)
+    setMobileMenu(null)
     setEmojiOpen(false)
     setActionError('')
     textareaRef.current?.focus({ preventScroll: true })
@@ -722,11 +727,11 @@ export function ResidentChat({
   }
 
   const reactToMessage = async (messageId: string, emoji: string) => {
-    if (!onReact || reactionBusy) return
+    if (!onReact || reactionBusy) return false
     setReactionBusy(true)
     setActionError('')
-    try { await onReact(messageId, emoji); setMenu(null) }
-    catch { setActionError('Не удалось сохранить реакцию. Попробуйте ещё раз.') }
+    try { await onReact(messageId, emoji); setMenu(null); return true }
+    catch { setActionError('Не удалось сохранить реакцию. Попробуйте ещё раз.'); return false }
     finally { setReactionBusy(false) }
   }
 
@@ -737,7 +742,7 @@ export function ResidentChat({
 
   return (
     <section ref={rootRef} className="panel resident-chat" data-mobile-interaction={touch}
-      onClick={() => setMenu(null)} onKeyDown={event => { if (event.key === 'Escape' && !detailsMessage && !readersMessage) setMobileSelection(null) }}>
+      onClick={() => setMenu(null)} onKeyDown={event => { if (event.key === 'Escape' && !mobileMenuMessage && !readersMessage) setMobileSelection(null) }}>
       {selectionMode ? <ChatMobileSelectionBar messages={selectedMessages} viewerId={profile.id} canCopy={Boolean(selectionCopyText)}
         onClose={() => setMobileSelection(null)} onCopy={() => void copySelectedMessages()} onReply={startMobileReply}
         onEdit={startComposerEdit} onDelete={message => void deleteSelectedMessage(message)}
@@ -775,6 +780,15 @@ export function ResidentChat({
       <div
         ref={listRef}
         className="resident-chat__list"
+        onTouchStart={event => {
+          if (selectionMode && isBlankChatSpace(event.target, event.currentTarget)) longPressRef.current.reset()
+        }}
+        onClick={event => {
+          if (!selectionMode || !isBlankChatSpace(event.target, event.currentTarget)) return
+          if (isTouchChatInput(touch, (event.nativeEvent as PointerEvent).pointerType) && !longPressRef.current.consumeClick()) {
+            setMobileSelection(null)
+          }
+        }}
         onScroll={(event) => {
           updateScrollToLatestButton(event.currentTarget)
         }}
@@ -821,7 +835,7 @@ export function ResidentChat({
                     if (touch && (event.key === 'Enter' || event.key === ' ')) {
                       event.preventDefault()
                       if (selectionMode) toggleMobileMessage(message)
-                      else openMobileDetails(message)
+                      else openMobileMenu(message, event.currentTarget)
                     }
                   }}
                   onClick={event => handleBubbleClick(event, message)}
@@ -1063,12 +1077,13 @@ export function ResidentChat({
       </div>
 
       {readersMessage && <ChatReaders message={readersMessage} viewerId={profile.id} users={users} onClose={() => setReadersSelection(null)} />}
-      {detailsMessage && <ChatMobileMessageDetails key={detailsMessage.id} message={detailsMessage} viewerId={profile.id}
-        onClose={() => setMobileDetails(null)} onReply={() => startMobileReply(detailsMessage)}
-        onSelect={() => selectMobileMessage(detailsMessage)} onReaders={() => openReaders(detailsMessage)}
-        onReact={onReact ? emoji => void reactToMessage(detailsMessage.id, emoji) : undefined}
-        reactionBusy={reactionBusy} error={actionError} />}
-      {actionError && !detailsMessage && <div className="chat-action-error" role="alert">{actionError}<button onClick={() => setActionError('')}>Закрыть</button></div>}
+      {mobileMenu && mobileMenuMessage && <ChatMobileMessageMenu key={mobileMenuMessage.id} message={mobileMenuMessage} anchor={mobileMenu.anchor} viewerId={profile.id}
+        onClose={() => setMobileMenu(current => current === mobileMenu ? null : current)} onReply={() => startMobileReply(mobileMenuMessage)}
+        onSelect={() => selectMobileMessage(mobileMenuMessage)} onReaders={() => openReaders(mobileMenuMessage)}
+        onEdit={() => startComposerEdit(mobileMenuMessage)} onDelete={() => void deleteSelectedMessage(mobileMenuMessage)}
+        onTogglePin={() => onTogglePin(mobileMenuMessage)} onReact={onReact ? emoji => reactToMessage(mobileMenuMessage.id, emoji) : undefined}
+        reactionBusy={reactionBusy} reactionError={actionError} />}
+      {actionError && !mobileMenuMessage && <div className="chat-action-error" role="alert">{actionError}<button onClick={() => setActionError('')}>Закрыть</button></div>}
       {menu &&
         createPortal(
           <div

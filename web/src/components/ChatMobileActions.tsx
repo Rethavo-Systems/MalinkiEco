@@ -1,6 +1,5 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { ResidentChatMessage } from './ResidentChat'
-import { ChatFormattedText } from './ChatFormatting'
 import { plainChatText } from '../lib/chatFormatting'
 import { mobileMessagePermissions } from '../lib/chatMobileInteraction'
 import './ChatMobileActions.css'
@@ -24,13 +23,13 @@ const icons = {
   edit: 'm4 16 11-11 4 4L8 20H4zm9-9 4 4',
   delete: 'M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7',
   eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6',
+  pin: 'm8 3 8 0-1 6 4 4H5l4-4zM12 13v8',
+  select: 'M21 11v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10m-7 8 4 4 9-10',
 }
 
 function ActionIcon({ name }: { name: keyof typeof icons }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={icons[name]} /></svg>
 }
-
-const messageDate = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' })
 
 export function ChatMobileSelectionBar({ messages, viewerId, canCopy, onClose, onCopy, onReply, onEdit, onDelete, onReaders }: MessageActions) {
   const message = messages.length === 1 ? messages[0] : null
@@ -79,95 +78,120 @@ export function ChatMobileMessageToggle({ selected, onClick }: { selected: boole
   )
 }
 
-export function ChatMobileMessageDetails({ message, viewerId, onClose, onReply, onSelect, onReaders, onReact, reactionBusy, error }: {
+export type MobileMenuAnchor = { bubble: HTMLElement; offsetY: number }
+
+export function ChatMobileMessageMenu({ message, anchor, viewerId, onClose, onReply, onSelect, onReaders, onEdit, onDelete, onTogglePin, onReact, reactionBusy, reactionError }: {
   message: ResidentChatMessage
+  anchor: MobileMenuAnchor
   viewerId: string
   onClose: () => void
   onReply: () => void
   onSelect: () => void
   onReaders: () => void
-  onReact?: (emoji: string) => void
+  onEdit: () => void
+  onDelete: () => void
+  onTogglePin: () => Promise<void>
+  onReact?: (emoji: string) => Promise<boolean>
   reactionBusy: boolean
-  error: string
+  reactionError: string
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
-  const textArea = useRef<HTMLTextAreaElement>(null)
-  const [selectText, setSelectText] = useState(false)
-  const [copyStatus, setCopyStatus] = useState('')
-  const own = mobileMessagePermissions(message, viewerId).canViewReaders
-  const text = selectText ? plainChatText(message.text) : ''
-  const sentAt = Number.isFinite(message.createdAtClient) && message.createdAtClient > 0
-    ? messageDate.format(message.createdAtClient)
-    : 'Время не указано'
-  const copy = async () => {
-    const field = textArea.current
-    const selection = field && field.selectionStart !== field.selectionEnd
-      ? text.slice(field.selectionStart, field.selectionEnd)
-      : text
+  const [actionBusy, setActionBusy] = useState(false)
+  const [error, setError] = useState('')
+  const permissions = mobileMessagePermissions(message, viewerId)
+  const text = plainChatText(message.text)
+
+  useLayoutEffect(() => {
+    const element = dialog.current
+    if (!element) return
+    const viewport = window.visualViewport
+    const placeMenu = () => {
+      const margin = 8
+      const left = (viewport?.offsetLeft ?? 0) + margin
+      const top = (viewport?.offsetTop ?? 0) + margin
+      const width = (viewport?.width ?? window.innerWidth) - 2 * margin
+      const height = (viewport?.height ?? window.innerHeight) - 2 * margin
+      element.style.maxWidth = `${width}px`
+      element.style.maxHeight = `${height}px`
+      const rect = anchor.bubble.getBoundingClientRect()
+      const x = permissions.canEdit ? rect.right - element.offsetWidth : rect.left
+      const y = rect.top + Math.min(anchor.offsetY, rect.height) - 24
+      element.style.left = `${Math.max(left, Math.min(x, left + width - element.offsetWidth))}px`
+      element.style.top = `${Math.max(top, Math.min(y, top + height - element.offsetHeight))}px`
+    }
+
+    element.showModal()
+    placeMenu()
+    const observer = new ResizeObserver(placeMenu)
+    observer.observe(element)
+    window.addEventListener('resize', placeMenu)
+    viewport?.addEventListener('resize', placeMenu)
+    viewport?.addEventListener('scroll', placeMenu)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', placeMenu)
+      viewport?.removeEventListener('resize', placeMenu)
+      viewport?.removeEventListener('scroll', placeMenu)
+      if (element.open) element.close()
+    }
+  }, [anchor, permissions.canEdit])
+
+  const close = () => {
+    if (!dialog.current?.open) return
+    dialog.current.close()
+    onClose()
+  }
+  const choose = (action: () => void) => {
+    close()
+    action()
+  }
+  const run = async (action: () => Promise<void>, failure: string) => {
+    setError('')
+    setActionBusy(true)
     try {
-      await navigator.clipboard.writeText(selection)
-      setCopyStatus('Текст скопирован')
+      await action()
+      close()
     } catch {
-      setCopyStatus('Не удалось скопировать. Выделите текст и используйте меню браузера.')
+      setError(failure)
+    } finally {
+      setActionBusy(false)
     }
   }
   return (
     <dialog
-      className="chat-mobile-details"
-      aria-label="Сообщение и реакции"
-      ref={element => {
-        dialog.current = element
-        if (element && !element.open) element.showModal()
-      }}
-      onClose={onClose}
+      className="chat-mobile-menu"
+      aria-label="Действия с сообщением"
+      ref={dialog}
+      onClose={() => { if (!dialog.current?.open) onClose() }}
       onClick={event => {
-        if (event.target === event.currentTarget) dialog.current?.close()
+        if (event.target === event.currentTarget) close()
       }}
     >
-      <div className="chat-mobile-details__inner">
-        <header>
-          <div>
-            <strong>{message.senderName}{message.senderPlotName ? ` · ${message.senderPlotName}` : ''}</strong>
-            <span>{sentAt}{message.updatedAtClient > 0 ? ' · изменено' : ''}</span>
-          </div>
-          <button type="button" aria-label="Закрыть сведения о сообщении" onClick={() => dialog.current?.close()}>
-            <ActionIcon name="close" />
-          </button>
-        </header>
-        {onReact && (
-          <div className="chat-mobile-details__reactions" role="group" aria-label="Реакция на сообщение">
-            {['👍', '❤️', '😂', '🎉', '🙏', '👎'].map(emoji => (
-              <button
-                key={emoji}
-                type="button"
-                aria-label={`Поставить ${emoji}`}
-                aria-pressed={message.reactions?.[viewerId] === emoji}
-                disabled={reactionBusy}
-                onClick={() => onReact(emoji)}
-              >{emoji}</button>
-            ))}
-          </div>
-        )}
-        {error && <p className="chat-mobile-details__error" role="alert">{error}</p>}
-        {selectText ? (
-          <div className="chat-mobile-details__selection">
-            <label>
-              Выделите нужный фрагмент
-              <textarea ref={textArea} readOnly value={text} aria-label="Текст сообщения для выделения" rows={5} />
-            </label>
-            <button type="button" onClick={() => void copy()}>Копировать текст</button>
-            {copyStatus && <p role="status">{copyStatus}</p>}
-          </div>
-        ) : message.text && <p className="chat-mobile-details__text"><ChatFormattedText text={message.text} /></p>}
-        {message.attachments.length > 0 && <p className="chat-mobile-details__files">Вложений: {message.attachments.length}</p>}
-        <div className="chat-mobile-details__actions">
-          <button type="button" onClick={() => { dialog.current?.close(); onReply() }}>
-            <ActionIcon name="reply" />Ответить
-          </button>
-          <button type="button" onClick={onSelect}>Выделить сообщение</button>
-          {message.text && !selectText && <button type="button" onClick={() => setSelectText(true)}>Выделить текст</button>}
-          {own && <button type="button" onClick={onReaders}><ActionIcon name="eye" />Кто прочитал</button>}
+      {onReact && (
+        <div className="chat-mobile-menu__reactions" role="group" aria-label="Реакции">
+          {['👍', '❤️', '😂', '🎉', '🙏', '👎'].map(emoji => (
+            <button key={emoji} type="button" aria-label={`Поставить ${emoji}`}
+              aria-pressed={message.reactions?.[viewerId] === emoji} disabled={actionBusy || reactionBusy}
+              onClick={async () => { setError(''); if (await onReact(emoji)) close() }}
+            >{emoji}</button>
+          ))}
         </div>
+      )}
+      <div className="chat-mobile-menu__actions" data-own={permissions.canEdit}>
+        <button type="button" onClick={() => choose(onReply)}><ActionIcon name="reply" />Ответить</button>
+        {text.trim() && (
+          <button type="button" disabled={actionBusy} onClick={() => void run(() => navigator.clipboard.writeText(text), 'Не удалось скопировать текст.')}>
+            <ActionIcon name="copy" />Копировать
+          </button>
+        )}
+        {permissions.canEdit && <button type="button" onClick={() => choose(onEdit)}><ActionIcon name="edit" />Редактировать</button>}
+        <button type="button" onClick={() => choose(onSelect)}><ActionIcon name="select" />Выделить</button>
+        <button type="button" disabled={actionBusy} onClick={() => void run(onTogglePin, 'Не удалось изменить закрепление.')}>
+          <ActionIcon name="pin" />{message.isPinned ? 'Открепить' : 'Закрепить'}
+        </button>
+        {permissions.canViewReaders && <button type="button" onClick={() => choose(onReaders)}><ActionIcon name="eye" />Кто прочитал</button>}
+        {permissions.canDelete && <button type="button" className="is-danger" onClick={() => choose(onDelete)}><ActionIcon name="delete" />Удалить</button>}
+        {(error || reactionError) && <p className="chat-mobile-menu__error" role="alert">{error || reactionError}</p>}
       </div>
     </dialog>
   )
