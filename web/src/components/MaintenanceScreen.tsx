@@ -44,6 +44,11 @@ export function MaintenanceScreen({
   return (
     <div className="shell maintenance-shell">
       <section className={`maintenance-card maintenance-card--${variant}`} aria-live="polite">
+        <div className="service-status-art" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth=".8" strokeLinecap="round" strokeLinejoin="round">
+            {variant === 'error' ? <><path d="m12 3 10 18H2Z" /><path d="M12 9v5m0 3v.1" /></> : <><path d="M14 6a5 5 0 0 0-6 6L3 17a2.8 2.8 0 0 0 4 4l5-5a5 5 0 0 0 6-6l-3 3-4-4Z" /><path d="m17 3 4 4" /></>}
+          </svg>
+        </div>
         <div className="maintenance-card__top">
           <div className="maintenance-brand">
             <div className="maintenance-brand__text">
@@ -67,11 +72,6 @@ export function MaintenanceScreen({
             </div>
           )}
           <div>
-            <div className="service-status-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                {variant === 'error' ? <><path d="m12 3 10 18H2Z" /><path d="M12 9v5m0 3v.1" /></> : <><path d="M14 6a5 5 0 0 0-6 6L3 17a2.8 2.8 0 0 0 4 4l5-5a5 5 0 0 0 6-6l-3 3-4-4Z" /><path d="m17 3 4 4" /></>}
-              </svg>
-            </div>
             <h1>{title}</h1>
             <p className="maintenance-message">{message}</p>
             {hasCountdown ? (

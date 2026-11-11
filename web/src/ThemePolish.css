@@ -51,8 +51,32 @@ html[data-theme] .maintenance-card { --service-color: var(--ui-warning); --servi
 html[data-theme] .maintenance-card--error { --service-color: var(--status-debt); --service-bg: var(--status-debt-bg); }
 html[data-theme] .maintenance-card .maintenance-chip { color: var(--service-color); background: var(--service-bg); border-color: color-mix(in srgb,var(--service-color) 35%,var(--ui-line)); }
 html[data-theme] .maintenance-card .maintenance-chip::before { background: var(--service-color); animation: service-indicator 2.5s ease-in-out infinite; }
-.service-status-icon { display: grid; place-items: center; width: 50px; height: 50px; margin-bottom: 20px; color: var(--service-color); background: var(--service-bg); border: 1px solid color-mix(in srgb,var(--service-color) 30%,transparent); border-radius: 15px; }
-.service-status-icon svg { width: 27px; height: 27px; }
+.service-status-art {
+  position: absolute;
+  z-index: 0;
+  inset-inline-end: 0;
+  inset-block-end: 0;
+  display: grid;
+  justify-items: end;
+  inline-size: min(60%, 340px);
+  pointer-events: none;
+  color: var(--service-color);
+  background: radial-gradient(ellipse at 100% 100%, color-mix(in srgb, currentColor 7%, transparent), transparent 71%);
+}
+.service-status-art svg {
+  display: block;
+  inline-size: min(80%, 228px);
+  block-size: auto;
+  margin-inline-end: -12px;
+  margin-block-end: -24px;
+  opacity: .19;
+  mask-image: linear-gradient(135deg, transparent 6%, #000 70%);
+}
+.maintenance-card .service-actions { position: relative; z-index: 1; }
+@media (max-width: 640px) {
+  .service-status-art { inline-size: min(70%, 260px); }
+  .service-status-art svg { opacity: .12; }
+}
 @keyframes service-indicator { 50% { opacity: .5; box-shadow: 0 0 0 4px color-mix(in srgb,var(--service-color) 12%,transparent); } }
 html[data-theme] .shell.loading-shell { min-height: 100dvh; padding: 32px 20px 24px; background: radial-gradient(ellipse at 10% 10%,var(--brand-rose-glow),transparent 60%),radial-gradient(ellipse at 90% 90%,var(--brand-blue-glow),transparent 60%),var(--ui-bg); }
 .loading-card { width: min(400px,100%); margin: auto; padding: 32px 24px; text-align: center; color: var(--ui-text); animation: surface-enter .4s ease both; }
