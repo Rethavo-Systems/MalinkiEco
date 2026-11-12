@@ -57,6 +57,7 @@ import { usePageNotice } from './hooks/usePageNotice'
 import { useResidentAuth } from './hooks/useResidentAuth'
 import { useResidentData } from './hooks/useResidentData'
 import { useResidentProfile } from './hooks/useResidentProfile'
+import { useTabHistory } from './hooks/useTabHistory'
 import { useWebPush } from './hooks/useWebPush'
 import { useAvatarObjectUrl } from './hooks/useAvatarObjectUrl'
 import {
@@ -67,7 +68,6 @@ import {
   uploadUserAvatar,
 } from './lib/chatFilesApi'
 import { GateServiceError, openGate as openGateRequest } from './lib/gateApi'
-import { clearRequestedTabFromUrl, readRequestedTabFromUrl } from './lib/webPush'
 import type {
   ChatMessage,
   ChatAttachment,
@@ -255,13 +255,16 @@ async function createCroppedAvatarFile(crop: AvatarCropDraft) {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<TabKey>(() => readRequestedTabFromUrl() ?? 'events')
-  const chatViewportRef = useChatViewport(activeTab === 'chat')
   const [pollDraft, setPollDraft] = useState<PollDraft>(INITIAL_POLL_DRAFT)
   const [pollSubmitting, setPollSubmitting] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
+  const { requestedTab, selectTab, replaceTab } = useTabHistory(() => {
+    setSettingsOpen(false)
+    setSupportOpen(false)
+    setAvatarMenuOpen(false)
+  })
   const avatarButtonRef = useRef<HTMLButtonElement>(null)
   const [avatarMenuPosition, setAvatarMenuPosition] = useState({ left: 0, top: 0 })
   const [avatarInputElement, setAvatarInputElement] = useState<HTMLInputElement | null>(null)
@@ -304,6 +307,14 @@ function App() {
   })
   const isMaintenancePrivileged = profile?.role === 'ADMIN' || profile?.role === 'TESTER'
   const maintenanceLocked = gateMode !== 'open' && !isMaintenancePrivileged
+  const isAdmin = profile?.role === 'ADMIN'
+  const isStaff = isAdmin || profile?.role === 'MODERATOR'
+  const visibleTabs = useMemo<TabKey[]>(
+    () => (isStaff ? ['events', 'chat', 'owners', 'polls', 'payments', 'logs'] : ['events', 'chat', 'owners', 'polls', 'payments']),
+    [isStaff],
+  )
+  const activeTab = !maintenanceLocked && visibleTabs.includes(requestedTab) ? requestedTab : visibleTabs[0]
+  const chatViewportRef = useChatViewport(activeTab === 'chat')
   const {
     unbindBeforeLogout,
     busy: webPushBusy,
@@ -326,8 +337,6 @@ function App() {
   } = useResidentData(maintenanceLocked ? null : profile, activeTab)
 
   const profileAvatarUrl = useAvatarObjectUrl(profile?.avatar?.downloadPath ?? '')
-  const isAdmin = profile?.role === 'ADMIN'
-  const isStaff = isAdmin || profile?.role === 'MODERATOR'
   const gateCooldownUntilClient = Math.max(Number(gateStatus.cooldownUntilClient || 0), localGateCooldownUntil)
   const gateOpeningLockUntilClient =
     gateStatus.status === 'OPENING' ? Number(gateStatus.openingLockUntilClient || 0) : 0
@@ -350,11 +359,6 @@ function App() {
   const pendingOwnersItemsCount = pendingPaymentRequestsCount + pendingRegistrationRequestsCount
   const staffUserIds = useMemo(() => staffRecipients(users), [users])
 
-  const visibleTabs = useMemo<TabKey[]>(
-    () => (isStaff ? ['events', 'chat', 'owners', 'polls', 'payments', 'logs'] : ['events', 'chat', 'owners', 'polls', 'payments']),
-    [isStaff],
-  )
-
   useEffect(() => {
     if (gateClockUntilClient <= Date.now()) return
 
@@ -371,10 +375,6 @@ function App() {
   }, [gateClockUntilClient])
 
   useEffect(() => {
-    clearRequestedTabFromUrl()
-  }, [])
-
-  useEffect(() => {
     if (!maintenanceLocked) return
 
     setSettingsOpen(false)
@@ -382,15 +382,11 @@ function App() {
     setGateOpening(false)
     setLocalGateCooldownUntil(0)
     clearNotice()
-    setActiveTab('events')
   }, [clearNotice, maintenanceLocked])
 
   useEffect(() => {
-    if (visibleTabs.includes(activeTab)) {
-      return
-    }
-    setActiveTab(visibleTabs[0])
-  }, [activeTab, visibleTabs])
+    if (profile && requestedTab !== activeTab) replaceTab(activeTab)
+  }, [activeTab, profile, replaceTab, requestedTab])
 
   useEffect(() => {
     if (!avatarMenuOpen) return
@@ -1676,7 +1672,7 @@ function App() {
 
         <div className="topbar-actions">
           <button type="button" className={`balance-chip ${balanceTone(profile.balance)}`}
-            onClick={() => { setActiveTab('payments'); window.scrollTo({ top: 0, behavior: 'instant' }) }}
+            onClick={() => { selectTab('payments'); window.scrollTo({ top: 0, behavior: 'instant' }) }}
             aria-label={`Перейти в оплату. ${balanceLabel(profile.balance)}. ${profile.balance.toLocaleString('ru-RU')} рублей`}
             title="Перейти в раздел оплаты">
             <span>{balanceLabel(profile.balance)}</span>
@@ -1723,7 +1719,7 @@ function App() {
         </div>
       </header>
 
-      <AppNavigation activeTab={activeTab} tabs={visibleTabs} badges={tabBadgeCounts} balance={profile.balance} onSelect={setActiveTab} />
+      <AppNavigation activeTab={activeTab} tabs={visibleTabs} badges={tabBadgeCounts} balance={profile.balance} onSelect={selectTab} />
 
       {pageNotice && <PageNotice key={noticeId} message={pageNotice} kind={noticeKind} onClose={clearNotice} />}
 

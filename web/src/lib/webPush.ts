@@ -218,16 +218,3 @@ export function readRequestedTabFromUrl(): TabKey | null {
   if (!openTab) return null
   return tabForNotificationDestination(openTab)
 }
-
-export function clearRequestedTabFromUrl(): void {
-  if (!hasWindow()) return
-
-  const url = new URL(window.location.href)
-  if (!url.searchParams.has('openTab')) {
-    return
-  }
-
-  url.searchParams.delete('openTab')
-  const nextUrl = `${url.pathname}${url.search}${url.hash}`
-  window.history.replaceState({}, '', nextUrl || '/')
-}
