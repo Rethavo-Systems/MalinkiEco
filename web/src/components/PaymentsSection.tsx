@@ -1,7 +1,7 @@
 import { useCurrentTime } from '../hooks/useCurrentTime'
 import { isChargeClosed } from '../lib/chargeDeadline'
 import { useEffect, useMemo, useState } from 'react'
-import { reservedChargeIds, parsePaymentRubles } from '../lib/paymentSelection'
+import { reservedChargeIds, parsePaymentRubles, paymentRequestErrorMessage } from '../lib/paymentSelection'
 import { normalizePlots } from '../lib/plotAccounts'
 import { newestCreatedFirst } from '../lib/requestHistory'
 import type { CommunityEvent, ManualPaymentRequest, PaymentTransferConfig, RemoteUser } from '../types'
@@ -186,7 +186,7 @@ export function PaymentsSection({
       setPurpose('')
       setFormSuccess('Заявка на оплату отправлена. Дождитесь подтверждения модератора или администратора.')
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Не удалось отправить заявку. Попробуйте ещё раз.')
+      setFormError(paymentRequestErrorMessage(error))
     } finally {
       setSubmitting(false)
     }

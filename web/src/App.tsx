@@ -1,4 +1,5 @@
 import { pendingRequestCount, isPersonalEventVisible } from './lib/navigationState'
+import { paymentRequestErrorMessage } from './lib/paymentSelection'
 import { canReadVisibleContent } from './lib/readVisibility'
 import { staffRecipients, notificationEmailTargets } from './lib/notificationRecipients'
 ﻿import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
@@ -1031,7 +1032,7 @@ function App() {
       }
       showNotice('Заявка на оплату отправлена')
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Не удалось отправить заявку на оплату')
+      showNotice(paymentRequestErrorMessage(error))
       throw error
     }
   }

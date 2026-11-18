@@ -77,6 +77,47 @@ test('invalid amounts, empty purpose, changed ownership and closed charges produ
   await assert.rejects(createPaymentRequest(db,payer,100,[{id:'closed',type:'CHARGE'}],'payment',['Участок 4']))
   assert.equal([...db.values.keys()].filter(path => path.startsWith('payment_requests/')).length,2)
 })
+
+test('payment request uses exact server ownership values required by Firestore rules', async () => {
+  for (const storedPlots of [['3', '4'], ['Участок 3', 'Участок 4'], [' 3 ', 'участок 4']]) {
+    const db = createStore({ 'users/payer': { plots: storedPlots }, 'events/charge': { type: 'CHARGE', isClosed: false } })
+    const payer = { id: 'payer', fullName: 'Payer', plots: ['Участок 3', 'Участок 4'], plotName: 'Участок 3, Участок 4' }
+    await createPaymentRequest(db, payer, 1000, [{ id: 'charge', type: 'CHARGE', title: 'Сбор' }], 'За ноябрь', ['Участок 4'])
+    const requests = [...db.values.entries()].filter(([path]) => path.startsWith('payment_requests/'))
+    assert.equal(requests.length, 1)
+    assert.deepEqual(requests[0][1].plotIds, [storedPlots[1]])
+    assert.equal(requests[0][1].plotName, 'Участок 4')
+    assert.equal(requests[0][1].amount, 1000)
+    assert.equal(requests[0][1].status, 'PENDING')
+    assert.equal(requests[0][1].purpose, 'За ноябрь')
+    assert.deepEqual(db.values.get('users/payer').plots, storedPlots)
+  }
+})
+
+test('multi-plot request preserves stored IDs and confirmation credits only its selected plots', async () => {
+  const values = seed()
+  values['users/payer'].plots = ['3', '4']
+  values['users/shared3'].plots = ['3']
+  values['users/other4'].plots = ['4']
+  const db = createStore(values)
+  const payer = { id: 'payer', fullName: 'Payer', plots: ['3', '4'], plotName: '3, 4' }
+  await createPaymentRequest(db, payer, 2000, [], 'За ноябрь')
+  const [path, request] = [...db.values.entries()].find(([path]) => path.startsWith('payment_requests/auto-'))
+  assert.deepEqual(request.plotIds, ['3', '4'])
+  await confirmPaymentRequest(db, reviewer, path.split('/')[1])
+  assert.equal(db.values.get('plots/plot-03').balance, 1000)
+  assert.equal(db.values.get('plots/plot-04').balance, 1000)
+  assert.equal(db.values.get('users/payer').balance, 2000)
+  assert.equal(db.values.get('users/shared3').balance, 1000)
+  assert.equal(db.values.get('users/other4').balance, 1000)
+})
+
+test('account with missing plots reports its configuration problem before creating a request', async () => {
+  const db = createStore({ 'users/payer': { plotName: '3' } })
+  const payer = { id: 'payer', fullName: 'Payer', plots: [], plotName: '3' }
+  await assert.rejects(createPaymentRequest(db, payer, 1000, [], 'За ноябрь'), /привязку участков/)
+  assert.equal([...db.values.keys()].some(path => path.startsWith('payment_requests/')), false)
+})
 test('parallel first-time migration does not overwrite a payment', async () => {
   const values = seed(); delete values['plots/plot-35']
   const db = createStore(values)

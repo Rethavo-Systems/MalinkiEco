@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { reservedChargeIds, parsePaymentRubles } from '../src/lib/paymentSelection.ts'
+import { reservedChargeIds, parsePaymentRubles, paymentRequestErrorMessage } from '../src/lib/paymentSelection.ts'
 
 test('payment for plot 3 does not hide a charge when paying for plot 4', () => {
   const requests = [{status:'PENDING', plots:['Участок 3'], eventIds:['charge']}]
@@ -17,4 +17,10 @@ test('amount input never silently changes decimal, negative or malformed amounts
   for (const value of ['12.50','12,50','-500','1e3','500 ₽','','0','9007199254740992']) assert.equal(parsePaymentRubles(value), null, value)
   assert.equal(parsePaymentRubles('1 500'),1500)
   assert.equal(parsePaymentRubles('2\u00a0500'),2500)
+})
+
+test('permission denial gives the resident a Russian explanation while preserving validation errors', () => {
+  const denied = Object.assign(new Error('Missing or insufficient permissions.'), { code: 'permission-denied' })
+  assert.match(paymentRequestErrorMessage(denied), /ограничений доступа/)
+  assert.equal(paymentRequestErrorMessage(new Error('Список ваших участков изменился. Обновите страницу.')), 'Список ваших участков изменился. Обновите страницу.')
 })

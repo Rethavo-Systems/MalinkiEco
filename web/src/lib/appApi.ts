@@ -34,6 +34,7 @@ import {
   PLOT_OPTIONS,
   deriveInitialPlotBalancesFromUsers,
   extractPlotsFromUserData,
+  normalizePlotName,
   normalizePlots,
   plotDocumentId,
   plotSortValue,
@@ -901,8 +902,17 @@ export async function createPaymentRequest(
   const requestRef = doc(collection(db, 'payment_requests'))
   await runTransaction(db, async transaction => {
     const owner = await transaction.get(doc(db, 'users', profile.id))
-    const currentPlots = owner.exists() ? extractPlotsFromUserData(owner.data()) : []
+    const ownerData = owner.data() ?? {}
+    const currentPlots = extractPlotsFromUserData(ownerData)
     if (plotIds.some(plot => !currentPlots.includes(plot))) throw new Error('Список ваших участков изменился. Обновите страницу.')
+    // Rules and shared-owner queries compare plotIds with the stored ownership values.
+    const storedPlots: unknown[] = Array.isArray(ownerData.plots) ? ownerData.plots : []
+    const storedPlotIds = plotIds.map(plot => storedPlots.find(
+      value => typeof value === 'string' && normalizePlotName(value) === plot,
+    ))
+    if (storedPlotIds.some(plot => plot === undefined)) {
+      throw new Error('Не удалось подтвердить привязку участков к аккаунту. Обратитесь к администратору.')
+    }
     for (const event of cleanEvents) {
       const snapshot = await transaction.get(doc(db, 'events', event.id))
       if (!snapshot.exists() || snapshot.data().type !== 'CHARGE' || isChargeClosed({ type: 'CHARGE', isClosed: Boolean(snapshot.data().isClosed), closesAtClient: Number(snapshot.data().closesAtClient ?? 0) })) {
@@ -916,7 +926,7 @@ export async function createPaymentRequest(
       amount: normalizedAmount,
       eventId: eventIds.join(','),
       eventIds,
-      plotIds,
+      plotIds: storedPlotIds,
       eventTitle: cleanEvents.map((item) => item.title).join(', '),
       purpose: cleanPurpose,
       status: 'PENDING',
