@@ -161,8 +161,11 @@ async function openGate(request, env) {
       )
     }
 
-    if (Boolean(gateDoc?.maintenanceEnabled) && !['ADMIN', 'TESTER'].includes(actorRole)) {
-      return jsonResponse({ ok: false, error: 'Сайт находится в режиме технических работ.' }, 503, request, env)
+    if (Boolean(gateDoc?.maintenanceEnabled || gateDoc?.errorEnabled) && !['ADMIN', 'TESTER'].includes(actorRole)) {
+      const reason = gateDoc?.errorEnabled
+        ? 'На сайте технический сбой. Открытие ворот временно недоступно.'
+        : 'Сайт находится в режиме технических работ.'
+      return jsonResponse({ ok: false, error: reason }, 503, request, env)
     }
 
     const now = Date.now()

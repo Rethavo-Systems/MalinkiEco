@@ -122,21 +122,24 @@ export function PollsSection({
       <div className="messenger-polls__feed">
         {sortedPolls.length === 0 && <div className="messenger-polls__empty"><strong>Пока нет опросов</strong><p>Создайте первый, чтобы узнать мнение соседей.</p></div>}
         {sortedPolls.map(poll => {
-          const hasVoted = poll.voterIds.includes(profile.id)
+          const hasVoted = poll.isAnonymous ? Boolean(poll.ownVote) : poll.voterIds.includes(profile.id)
+          const ownVoteLoading = poll.isAnonymous && poll.ownVoteStatus !== 'ready'
           const canSeeResults = poll.isClosed || hasVoted
           const canClose = !poll.isClosed && (poll.createdById === profile.id || ['ADMIN','MODERATOR'].includes(profile.role))
-          const total = poll.voterIds.length
+          const total = poll.isAnonymous
+            ? Object.values(poll.pollVotes).reduce((sum, count) => sum + Math.max(0, Number(count) || 0), 0)
+            : poll.voterIds.length
           return <article className="messenger-poll" key={poll.id}>
             <h3>{poll.title}</h3>
             <p className="messenger-poll__author">Создал: {poll.createdByName || labels.get(poll.createdById)?.name || 'Участник'}</p>
-            <p className="messenger-poll__kind">{poll.isAnonymous ? 'Анонимный опрос' : 'Открытый опрос'}{poll.isClosed ? ' · Завершён' : hasVoted ? ' · Вы проголосовали' : ' · Выберите один ответ'}</p>
+            <p className="messenger-poll__kind">{poll.isAnonymous ? 'Анонимный опрос' : 'Открытый опрос'}{poll.isClosed ? ' · Завершён' : hasVoted ? ' · Вы проголосовали' : poll.isAnonymous && poll.ownVoteStatus === 'error' ? ' · Голос временно недоступен' : ownVoteLoading ? ' · Загружаем ваш голос…' : ' · Выберите один ответ'}</p>
             {poll.message.trim() && <p className="messenger-poll__description">{poll.message}</p>}
             <div className="messenger-poll__options" aria-label={`Варианты ответа: ${poll.title}`}>
               {poll.pollOptions.map(option => {
-                const selected = poll.voterChoices[profile.id] === option
+                const selected = (poll.isAnonymous ? poll.ownVote : poll.voterChoices[profile.id]) === option
                 const percent = total ? Math.max(0, Math.min(100, Math.round(Number(poll.pollVotes[option] ?? 0) / total * 100))) : 0
                 return <button type="button" key={option} className={`messenger-poll__option${canSeeResults ? ' has-result' : ''}${selected ? ' is-selected' : ''}`}
-                  disabled={canSeeResults || Boolean(busyPoll)} aria-pressed={selected}
+                  disabled={canSeeResults || ownVoteLoading || Boolean(busyPoll)} aria-pressed={selected}
                   aria-label={canSeeResults ? `${option} — ${percent}%, ${voteCountLabel(Number(poll.pollVotes[option] ?? 0))}` : option}
                   onClick={() => void runAction(poll, () => onVote(poll, option))}>
                   <span className="messenger-poll__option-mark" aria-hidden="true">{canSeeResults ? `${percent}%` : <span className="messenger-poll__radio" />}</span>
@@ -147,6 +150,7 @@ export function PollsSection({
               })}
             </div>
             {actionError?.id === poll.id && <p role="alert" className="error-note">{actionError.message}</p>}
+            {poll.isAnonymous && poll.ownVoteStatus === 'error' && <p role="alert" className="error-note">Не удалось загрузить ваш голос. Обновите страницу и попробуйте снова.</p>}
             <footer className="messenger-poll__footer">
               {canSeeResults && !poll.isAnonymous && total > 0
                 ? <button type="button" className="messenger-polls__text-button" onClick={() => setResultsPollId(poll.id)} aria-label={`Кто проголосовал: ${poll.title}`}>{voteCountLabel(total)}<span aria-hidden="true"> ›</span></button>

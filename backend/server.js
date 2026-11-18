@@ -513,14 +513,18 @@ app.post("/api/gate/open", authenticateFirebaseUser, async (req, res) => {
     if (!["USER", "MODERATOR", "ADMIN", "TESTER"].includes(actorRole)) {
       return res.status(403).json({ error: "Недостаточно прав для открытия ворот" });
     }
-    if (actorBalance <= gateDebtBlockThreshold) {
+    if (actorRole !== "ADMIN" && actorBalance <= gateDebtBlockThreshold) {
       return res.status(403).json({ error: "Открытие ворот недоступно при задолженности от 5 000 ₽." });
     }
 
     const gateSnapshot = await firestore.collection("app_settings").doc("app_gate").get();
-    const maintenanceEnabled = Boolean(gateSnapshot.data()?.maintenanceEnabled ?? false);
+    const gateData = gateSnapshot.data() || {};
+    const maintenanceEnabled = Boolean(gateData.maintenanceEnabled || gateData.errorEnabled);
     if (maintenanceEnabled && !["ADMIN", "TESTER"].includes(actorRole)) {
-      return res.status(503).json({ error: "Сайт находится в режиме технических работ" });
+      const reason = gateData.errorEnabled
+        ? "На сайте технический сбой. Открытие ворот временно недоступно."
+        : "Сайт находится в режиме технических работ";
+      return res.status(503).json({ error: reason });
     }
 
     const now = Date.now();

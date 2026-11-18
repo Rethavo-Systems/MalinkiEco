@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+router_worker.env
+service-account.json
+.stopped

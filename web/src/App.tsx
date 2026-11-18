@@ -1,5 +1,6 @@
 import { pendingRequestCount, isPersonalEventVisible } from './lib/navigationState'
 import { paymentRequestErrorMessage } from './lib/paymentSelection'
+import { assertChatMessageLength } from './lib/chatMessageValidation'
 import { canReadVisibleContent } from './lib/readVisibility'
 import { staffRecipients, notificationEmailTargets } from './lib/notificationRecipients'
 ﻿import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
@@ -902,6 +903,7 @@ function App() {
 
     const attachments: ChatAttachment[] = []
     try {
+      assertChatMessageLength(text.trim())
       const cleanMentionedUserIds = Array.from(new Set(mentionedUserIds.filter((item) => item && item !== profile.id)))
       for (const file of files) {
         attachments.push(await uploadChatFile(file))
@@ -977,7 +979,7 @@ function App() {
   }
 
   const voteInPoll = async (poll: CommunityEvent, option: string) => {
-    if (!db || !profile || poll.voterIds.includes(profile.id) || poll.isClosed) return
+    if (!db || !profile || (poll.isAnonymous ? Boolean(poll.ownVote) : poll.voterIds.includes(profile.id)) || poll.isClosed) return
     await voteInPollRequest(db, profile, poll, option)
   }
 
@@ -1095,7 +1097,7 @@ function App() {
   const approveRegistration = async (request: RegistrationRequest) => {
     if (!db || !profile) return
     try {
-      await approveRegistrationRequestAction(db, profile, request)
+      if (!await approveRegistrationRequestAction(db, profile, request)) { showNotice('Заявка уже обработана.'); return }
       let pushQueued = true
       let emailQueued = true
 
@@ -1154,7 +1156,7 @@ function App() {
   const rejectRegistration = async (request: RegistrationRequest, reason: string) => {
     if (!db || !profile) return
     try {
-      await rejectRegistrationRequestAction(db, profile, request, reason)
+      if (!await rejectRegistrationRequestAction(db, profile, request, reason)) { showNotice('Заявка уже обработана.'); return }
       try {
         await enqueueTargetedNotification(db, {
           title: request.requestType === 'PROFILE_UPDATE' ? 'Изменение данных отклонено' : 'Регистрация отклонена',

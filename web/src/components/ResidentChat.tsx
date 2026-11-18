@@ -11,6 +11,7 @@ import {
   type MobileMessageSelection,
 } from '../lib/chatMobileInteraction'
 import { chatSelectionCopyText } from '../lib/chatFormatting'
+import { assertChatMessageLength } from '../lib/chatMessageValidation'
 import { createPortal } from 'react-dom'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -153,6 +154,7 @@ export function ResidentChat({
   const [replyingTo, setReplyingTo] = useState<ResidentChatMessage | null>(null)
   const [editingId, setEditingId] = useState('')
   const [editingText, setEditingText] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
   const { touch, enableTouch, enableMouse } = useTouchChatInteraction()
   const [mobileSelection, setMobileSelection] = useState<MobileMessageGroupSelection | null>(null)
   const [mobileMenu, setMobileMenu] = useState<(MobileMessageSelection & { anchor: MobileMenuAnchor }) | null>(null)
@@ -567,7 +569,7 @@ export function ResidentChat({
   }
 
   const addFiles = (files: FileList | null) => {
-    if (!files || files.length === 0) return
+    if (!files || files.length === 0 || sending) return
 
     const availableSlots = CHAT_FILE_MAX_COUNT - selectedFiles.length
     if (availableSlots <= 0) {
@@ -613,6 +615,9 @@ export function ResidentChat({
   const handleSend = async () => {
     const normalized = input.trim()
     if ((!normalized && selectedFiles.length === 0) || sending) return
+    setActionError('')
+    try { assertChatMessageLength(normalized) }
+    catch (error) { setActionError(error instanceof Error ? error.message : 'Проверьте длину сообщения.'); return }
 
     const mentionedUserIds = resolveMentionedUserIds(normalized)
     const filesToSend = selectedFiles.map((item) => item.file)
@@ -632,16 +637,26 @@ export function ResidentChat({
   }
 
   const handleSaveEdit = async () => {
-    if (!editingId) return
+    if (!editingId || savingEdit) return
     const normalized = editingText.trim()
     if (!normalized) return
-    await onSaveEdit(editingId, normalized)
-    setEditingId('')
-    setEditingText('')
+    setActionError('')
+    try { assertChatMessageLength(normalized) }
+    catch (error) { setActionError(error instanceof Error ? error.message : 'Проверьте длину сообщения.'); return }
+    setSavingEdit(true)
+    try {
+      await onSaveEdit(editingId, normalized)
+      setEditingId('')
+      setEditingText('')
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Не удалось сохранить сообщение. Попробуйте ещё раз.')
+    } finally {
+      setSavingEdit(false)
+    }
   }
 
   const startEdit = (message: ResidentChatMessage) => {
-    if (composerEditRequest.current) return
+    if (sending || savingEdit || composerEditRequest.current) return
     cancelComposerEdit()
     setEditingId(message.id)
     setEditingText(message.text)
@@ -649,12 +664,13 @@ export function ResidentChat({
   }
 
   const startReply = (message: ResidentChatMessage) => {
+    if (sending) return
     setReplyingTo(message)
     setMenu(null)
   }
 
   const startMobileReply = (message: ResidentChatMessage) => {
-    if (composerEditRequest.current) return
+    if (sending || composerEditRequest.current) return
     cancelComposerEdit()
     setMobileSelection(null)
     setMobileMenu(null)
@@ -663,7 +679,7 @@ export function ResidentChat({
   }
 
   const startComposerEdit = (message: ResidentChatMessage) => {
-    if (message.senderId !== profile.id || composerEditRequest.current) return
+    if (message.senderId !== profile.id || sending || savingEdit || composerEditRequest.current) return
     if (composerEditMessage?.id !== message.id) {
       setComposerEdit({ messageId: message.id, viewerId: profile.id })
       setComposerEditText(message.text)
@@ -683,6 +699,9 @@ export function ResidentChat({
 
   const saveComposerEdit = async () => {
     if (!composerEditMessage || !composerEditText.trim() || composerEditRequest.current) return
+    setActionError('')
+    try { assertChatMessageLength(composerEditText.trim()) }
+    catch (error) { setActionError(error instanceof Error ? error.message : 'Проверьте длину сообщения.'); return }
     composerEditRequest.current = true
     setSavingComposerEdit(true)
     setActionError('')
@@ -863,12 +882,12 @@ export function ResidentChat({
 
                 {isEditing ? (
                   <div className="resident-chat__edit">
-                    <ChatFormatInput value={editingText} onValueChange={setEditingText} rows={3} aria-label="Редактировать сообщение" />
+                    <ChatFormatInput value={editingText} onValueChange={setEditingText} readOnly={savingEdit} rows={3} aria-label="Редактировать сообщение" />
                     <div className="resident-chat__edit-actions">
-                      <button className="primary-button" onClick={() => void handleSaveEdit()}>
-                        Сохранить
+                      <button className="primary-button" disabled={savingEdit} onClick={() => void handleSaveEdit()}>
+                        {savingEdit ? 'Сохраняем…' : 'Сохранить'}
                       </button>
-                      <button className="ghost-button" onClick={cancelEdit}>
+                      <button className="ghost-button" disabled={savingEdit} onClick={cancelEdit}>
                         Отмена
                       </button>
                     </div>
@@ -944,7 +963,7 @@ export function ResidentChat({
               </strong>
               <span>{replyingTo.text}</span>
             </div>
-            <button className="ghost-button" onClick={() => setReplyingTo(null)}>
+            <button className="ghost-button" disabled={sending} onClick={() => setReplyingTo(null)}>
               Отменить
             </button>
           </div>
@@ -954,7 +973,7 @@ export function ResidentChat({
           {!composerEditMessage && selectedFiles.length > 0 && (
             <div className="resident-chat__selected-files">
               {selectedFiles.map((item) => (
-                <SelectedFilePreview key={item.id} item={item} onRemove={() => removeSelectedFile(item.id)} />
+                <SelectedFilePreview key={item.id} item={item} disabled={sending} onRemove={() => removeSelectedFile(item.id)} />
               ))}
             </div>
           )}
@@ -992,7 +1011,7 @@ export function ResidentChat({
                 aria-label={composerEditMessage ? 'Редактировать сообщение' : 'Сообщение'}
                 persistentToolbar={Boolean(composerEditMessage)}
                 formattingContext={composerEditMessage?.id}
-                readOnly={Boolean(composerEditMessage && savingComposerEdit)}
+                readOnly={sending || Boolean(composerEditMessage && savingComposerEdit)}
                 onKeyDown={event => {
                   if (composerEditMessage && event.key === 'Escape' && !savingComposerEdit) {
                     cancelComposerEdit()
@@ -1013,6 +1032,7 @@ export function ResidentChat({
                     <>
                       <button
                         className={`resident-chat__mention-option ${everyoneMentionActive ? 'is-selected' : ''}`}
+                        disabled={sending}
                         type="button"
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => insertMentionToken(EVERYONE_LABEL)}
@@ -1029,6 +1049,7 @@ export function ResidentChat({
                           <button
                             key={user.id}
                             className={`resident-chat__mention-option ${selected ? 'is-selected' : ''}`}
+                            disabled={sending}
                             type="button"
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => insertMentionToken(`@${user.fullName}`, user)}
@@ -1049,8 +1070,8 @@ export function ResidentChat({
               aria-label="Сохранить изменения сообщения" title="Сохранить">
               {savingComposerEdit ? <span className="resident-chat__send-loader" aria-hidden="true" /> : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>}
             </button> : <>
-            <button className="resident-chat__emoji-button" aria-label="Добавить эмодзи" aria-expanded={emojiOpen} onClick={() => setEmojiOpen(!emojiOpen)}>☺</button>
-            {emojiOpen && <div className="resident-chat__emojis">{['😊','👍','❤️','👋','🌿','🎉','🙏','☀️'].map(emoji => <button key={emoji} onClick={() => {setInput(current => current + emoji); setEmojiOpen(false); textareaRef.current?.focus()}}>{emoji}</button>)}</div>}
+            <button className="resident-chat__emoji-button" disabled={sending} aria-label="Добавить эмодзи" aria-expanded={emojiOpen} onClick={() => setEmojiOpen(!emojiOpen)}>☺</button>
+            {emojiOpen && <div className="resident-chat__emojis">{['😊','👍','❤️','👋','🌿','🎉','🙏','☀️'].map(emoji => <button key={emoji} disabled={sending} onClick={() => {setInput(current => current + emoji); setEmojiOpen(false); textareaRef.current?.focus()}}>{emoji}</button>)}</div>}
             <button
               className="resident-chat__send-button"
               onClick={() => void handleSend().catch(() => undefined)}
@@ -1159,7 +1180,7 @@ function ChatMessageAvatar({ name, avatar }: { name: string; avatar: UserAvatar 
   )
 }
 
-function SelectedFilePreview({ item, onRemove }: { item: SelectedChatFile; onRemove: () => void }) {
+function SelectedFilePreview({ item, onRemove, disabled }: { item: SelectedChatFile; onRemove: () => void; disabled: boolean }) {
   const isImage = item.file.type.startsWith('image/')
   const isVideo = item.file.type.startsWith('video/')
 
@@ -1176,7 +1197,7 @@ function SelectedFilePreview({ item, onRemove }: { item: SelectedChatFile; onRem
         <strong>{item.file.name}</strong>
         <small>{formatFileSize(item.file.size)}</small>
       </div>
-      <button type="button" onClick={onRemove} aria-label={`Убрать ${item.file.name}`}>
+      <button type="button" disabled={disabled} onClick={onRemove} aria-label={`Убрать ${item.file.name}`}>
         Убрать
       </button>
     </div>

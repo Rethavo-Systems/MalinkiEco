@@ -27,8 +27,11 @@ function commit(db, writes) {
     if (write.update && !db.values.has(write.ref.path)) throw new Error('Missing update document')
   }
   for (const write of writes) {
-    const value = write.merge || write.update ? { ...db.values.get(write.ref.path), ...write.value } : write.value
-    db.values.set(write.ref.path, structuredClone(value))
+    if (write.delete) db.values.delete(write.ref.path)
+    else {
+      const value = write.merge || write.update ? { ...db.values.get(write.ref.path), ...write.value } : write.value
+      db.values.set(write.ref.path, structuredClone(value))
+    }
     db.versions.set(write.ref.path, (db.versions.get(write.ref.path) ?? 0) + 1)
   }
 }
@@ -44,6 +47,7 @@ export async function runTransaction(db, callback) {
       },
       set(ref, value, options) { writes.push({ ref, value, merge: options?.merge }) },
       update(ref, value) { writes.push({ ref, value, update: true }) },
+      delete(ref) { writes.push({ ref, delete: true }) },
     })
     if ([...reads].some(([path, version]) => (db.versions.get(path) ?? 0) !== version)) { db.retries++; continue }
     commit(db, writes)
@@ -56,6 +60,7 @@ export function writeBatch(db) {
   return {
     set(ref, value, options) { writes.push({ ref, value, merge: options?.merge }) },
     update(ref, value) { writes.push({ ref, value, update: true }) },
+    delete(ref) { writes.push({ ref, delete: true }) },
     async commit() { commit(db, writes) },
   }
 }

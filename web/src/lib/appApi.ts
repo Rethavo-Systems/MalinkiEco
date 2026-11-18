@@ -1,5 +1,6 @@
 import { isChargeClosed, validateChargeDeadline } from './chargeDeadline'
 import { createChatReadPersistence } from './chatReadPersistence'
+import { assertChatMessageLength } from './chatMessageValidation'
 import {
   addDoc,
   collection,
@@ -10,6 +11,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  writeBatch,
   type Firestore,
   type Transaction,
   type DocumentSnapshot,
@@ -33,6 +35,7 @@ import {
   PLOTS_COLLECTION,
   PLOT_OPTIONS,
   deriveInitialPlotBalancesFromUsers,
+  extractPlotsFromUser,
   extractPlotsFromUserData,
   normalizePlotName,
   normalizePlots,
@@ -100,11 +103,10 @@ async function signalNotificationJob(
   })
 }
 
-async function enqueueNotificationJob(
-  db: Firestore,
+function notificationJobData(
   audience: 'broadcast' | 'users' | 'emails',
   payload: NotificationJobPayload,
-  options: NotificationQueueOptions = {},
+  creatorId: string,
 ) {
   const title = payload.title.trim()
   const body = payload.body.trim()
@@ -121,13 +123,43 @@ async function enqueueNotificationJob(
   }
 
   if (audience === 'users' && targetUserIds.length === 0) {
-    return
+    return null
   }
   if (audience === 'emails' && emailTargets.length === 0) {
-    return
+    return null
   }
 
   const createdAtClient = Date.now()
+  return {
+    status: 'PENDING', title, body, audience, destination, category,
+    targetUserIds, excludedUserIds, emailTargets,
+    sendEmail: payload.sendEmail ?? false,
+    sendPush: payload.sendPush ?? true,
+    authDeleteUserId, cleanupWebPushUserId,
+    attempts: 0, createdById: creatorId,
+    createdAt: serverTimestamp(), createdAtClient, nextAttemptAtClient: createdAtClient,
+    processingWorker: '', lastError: '',
+  }
+}
+
+async function signalQueuedNotification(signalDb: Database | null, creatorId: string, jobId: string, createdAtClient: number) {
+  if (!signalDb) return
+  try {
+    await signalNotificationJob(signalDb, creatorId, jobId, createdAtClient)
+  } catch {
+    console.warn('Уведомление сохранено в очереди; realtime-сигнал временно недоступен.')
+  }
+}
+
+async function enqueueNotificationJob(
+  db: Firestore,
+  audience: 'broadcast' | 'users' | 'emails',
+  payload: NotificationJobPayload,
+  options: NotificationQueueOptions = {},
+) {
+  const creatorId = (options.creatorId ?? auth?.currentUser?.uid ?? '').trim()
+  const job = notificationJobData(audience, payload, creatorId)
+  if (!job) return
   const localWorker = import.meta.env?.DEV ? String(import.meta.env.VITE_LOCAL_NOTIFICATION_WORKER_URL ?? '').trim() : ''
   if (localWorker) {
     const user = getAuth(db.app).currentUser
@@ -146,42 +178,14 @@ async function enqueueNotificationJob(
     return
   }
   const signalDb = options.signalDb ?? rtdb
-  const creatorId = (options.creatorId ?? auth?.currentUser?.uid ?? '').trim()
   if (!signalDb || !creatorId) {
     throw new Error('Не удалось подготовить realtime-сигнал для отправки уведомления.')
   }
 
   const jobRef = doc(collection(db, NOTIFICATION_JOBS_COLLECTION))
-  await setDoc(jobRef, {
-    status: 'PENDING',
-    title,
-    body,
-    audience,
-    destination,
-    category,
-    targetUserIds,
-    excludedUserIds,
-    emailTargets,
-    sendEmail: payload.sendEmail ?? false,
-    sendPush: payload.sendPush ?? true,
-    authDeleteUserId,
-    cleanupWebPushUserId,
-    attempts: 0,
-    createdById: creatorId,
-    createdAt: serverTimestamp(),
-    createdAtClient,
-    nextAttemptAtClient: createdAtClient,
-    processingWorker: '',
-    lastError: '',
-  })
-
-  try {
-    await signalNotificationJob(signalDb, creatorId, jobRef.id, createdAtClient)
-  } catch {
-    // The durable job is already queued. The worker's bounded fallback will pick it up.
-    // Deleting it here can race with processing or invite a duplicate on user retry.
-    console.warn('Уведомление сохранено в очереди; realtime-сигнал временно недоступен.')
-  }
+  await setDoc(jobRef, job)
+  // A lost signal is recoverable from the durable queue without resending the job.
+  await signalQueuedNotification(signalDb, creatorId, jobRef.id, job.createdAtClient)
 }
 
 export async function enqueueBroadcastNotification(
@@ -407,16 +411,23 @@ export async function approveRegistrationRequest(
   reviewer: RemoteUser,
   request: RegistrationRequest,
 ) {
+  if (reviewer.role !== 'ADMIN' && reviewer.role !== 'MODERATOR') {
+    throw new Error('Рассматривать заявки может только модератор или администратор.')
+  }
+  const requestRef = doc(db, 'registration_requests', request.id)
+  const userRef = doc(db, 'users', request.id)
+  const auditRef = doc(collection(db, 'audit_logs'))
   if (request.requestType === 'PROFILE_UPDATE') {
-    const requestRef = doc(db, 'registration_requests', request.id)
-    const userRef = doc(db, 'users', request.id)
-    const nextFullName = (request.proposedFullName || request.fullName).trim()
-    const nextPhone = normalizeRussianPhone(request.proposedPhone || request.phone)
-
-    await runTransaction(db, async (transaction) => {
+    return runTransaction(db, async (transaction) => {
       const requestSnapshot = await transaction.get(requestRef)
-      const status = String(requestSnapshot.data()?.status ?? '')
-      if (status !== 'PENDING') return
+      const current = requestSnapshot.data()
+      if (!current || current.status !== 'PENDING') return false
+      if (current.requestType !== 'PROFILE_UPDATE') throw new Error('Заявка изменилась. Обновите список перед рассмотрением.')
+      const userSnapshot = await transaction.get(userRef)
+      if (!userSnapshot.exists()) throw new Error('Аккаунт больше не существует.')
+      const nextFullName = String(current.proposedFullName || current.fullName || '').trim()
+      const nextPhone = normalizeRussianPhone(String(current.proposedPhone || current.phone || ''))
+      if (!nextFullName || nextPhone.length !== 11) throw new Error('В заявке указаны некорректные имя или телефон.')
 
       transaction.update(userRef, {
         fullName: nextFullName,
@@ -429,39 +440,46 @@ export async function approveRegistrationRequest(
         reviewReason: '',
         reviewedAt: serverTimestamp(),
       })
+      transaction.set(auditRef, {
+        actorId: reviewer.id, actorName: reviewer.fullName, actorRole: reviewer.role,
+        title: 'Одобрено изменение профиля', message: 'Заявка на изменение имени и телефона одобрена.',
+        targetUserId: request.id, targetUserName: String(userSnapshot.data()?.fullName ?? ''),
+        targetPlotName: extractPlotsFromUserData(userSnapshot.data()!).join(', '),
+        createdAt: serverTimestamp(), createdAtClient: Date.now(),
+      })
+      return true
     })
-
-    await createAuditLog(
-      db,
-      reviewer,
-      'Одобрено изменение профиля',
-      'Заявка на изменение имени и телефона одобрена.',
-      request.id,
-      request.currentFullName || request.fullName,
-      request.plots.join(', '),
-    )
-    return
   }
 
-  const plotBalances = await ensurePlotAccounts(db)
-  const requestRef = doc(db, 'registration_requests', request.id)
-  const userRef = doc(db, 'users', request.id)
-  const initialBalance = sumBalanceForPlots(plotBalances, request.plots, 0)
-
-  await runTransaction(db, async (transaction) => {
+  await ensurePlotAccounts(db)
+  return runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(requestRef)
-    const status = String(snapshot.data()?.status ?? '')
-    if (status !== 'PENDING') return
+    const current = snapshot.data()
+    if (!current || current.status !== 'PENDING') return false
+    if (String(current.requestType ?? 'REGISTRATION') !== 'REGISTRATION') throw new Error('Заявка изменилась. Обновите список перед рассмотрением.')
+    const existingUser = await transaction.get(userRef)
+    if (existingUser.exists()) throw new Error('Аккаунт уже зарегистрирован. Обновите список заявок.')
+    const rawPlots = Array.isArray(current.plots) ? current.plots.map(String) : []
+    const plots = normalizePlots(rawPlots)
+    if (!plots.length || plots.some(plot => !PLOT_OPTIONS.includes(plot))) throw new Error('В заявке указаны некорректные участки.')
+    const plotSnapshots = await Promise.all(plots.map(plot => transaction.get(doc(db, PLOTS_COLLECTION, plotDocumentId(plot)))))
+    const balances = new Map(plots.map((plot, index) => [plot, Number(plotSnapshots[index].data()?.balance ?? 0)]))
+    const fullName = String(current.fullName ?? '').trim()
+    const email = String(current.authEmail ?? '').trim()
+    if (!fullName || !email) throw new Error('В заявке не указаны имя или почта.')
 
+    plotSnapshots.forEach(plot => transaction.update(plot.ref, {
+      updatedAt: serverTimestamp(), updatedAtClient: Date.now(),
+    }))
     transaction.set(userRef, {
-      email: request.authEmail,
-      login: request.login,
-      fullName: request.fullName,
-      phone: request.phone,
-      plotName: request.plots.join(', '),
-      plots: request.plots,
+      email,
+      login: String(current.login ?? ''),
+      fullName,
+      phone: String(current.phone ?? ''),
+      plotName: rawPlots.join(', '),
+      plots: rawPlots,
       role: 'USER',
-      balance: initialBalance,
+      balance: sumBalanceForPlots(balances, plots, 0),
       lastChatReadAt: 0,
       notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
     })
@@ -472,17 +490,14 @@ export async function approveRegistrationRequest(
       reviewReason: '',
       reviewedAt: serverTimestamp(),
     })
+    transaction.set(auditRef, {
+      actorId: reviewer.id, actorName: reviewer.fullName, actorRole: reviewer.role,
+      title: 'Одобрена регистрация', message: 'Заявка на регистрацию одобрена.',
+      targetUserId: request.id, targetUserName: fullName, targetPlotName: rawPlots.join(', '),
+      createdAt: serverTimestamp(), createdAtClient: Date.now(),
+    })
+    return true
   })
-
-  await createAuditLog(
-    db,
-    reviewer,
-    'Одобрена регистрация',
-    'Заявка на регистрацию одобрена.',
-    request.id,
-    request.fullName,
-    request.plots.join(', '),
-  )
 }
 
 export async function rejectRegistrationRequest(
@@ -491,51 +506,52 @@ export async function rejectRegistrationRequest(
   request: RegistrationRequest,
   reason: string,
 ) {
-  const normalizedReason = reason.trim()
-
-  await updateDoc(doc(db, 'registration_requests', request.id), {
-    status: 'REJECTED',
-    reviewedById: reviewer.id,
-    reviewedByName: reviewer.fullName,
-    reviewReason: normalizedReason,
-    reviewedAt: serverTimestamp(),
-  })
-
-  await createAuditLog(
-    db,
-    reviewer,
-    request.requestType === 'PROFILE_UPDATE' ? 'Отклонено изменение профиля' : 'Отклонена регистрация',
-    normalizedReason
-      ? request.requestType === 'PROFILE_UPDATE'
-        ? `Заявка на изменение данных отклонена. Причина: ${normalizedReason}.`
-        : `Заявка на регистрацию отклонена. Причина: ${normalizedReason}.`
-      : request.requestType === 'PROFILE_UPDATE'
-        ? 'Заявка на изменение данных отклонена.'
-        : 'Заявка на регистрацию отклонена.',
-    request.id,
-    request.fullName,
-    request.plots.join(', '),
-  )
-
-  if (request.requestType === 'REGISTRATION') {
-    await enqueueTargetedNotification(
-      db,
-      {
-        title: 'Auth cleanup',
-        body: `Delete auth account for rejected registration ${request.fullName}`,
-        destination: 'auth',
-        category: 'system',
-        targetUserIds: [request.id],
-        sendEmail: false,
-        sendPush: false,
-        authDeleteUserId: request.id,
-        cleanupWebPushUserId: request.id,
-      },
-      {
-        creatorId: reviewer.id,
-      },
-    )
+  if (reviewer.role !== 'ADMIN' && reviewer.role !== 'MODERATOR') {
+    throw new Error('Рассматривать заявки может только модератор или администратор.')
   }
+  const normalizedReason = reason.trim()
+  const requestRef = doc(db, 'registration_requests', request.id)
+  const auditRef = doc(collection(db, 'audit_logs'))
+  const cleanupRef = doc(collection(db, NOTIFICATION_JOBS_COLLECTION))
+  const rejected = await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(requestRef)
+    const current = snapshot.data()
+    if (!current || current.status !== 'PENDING') return null
+    const requestType = String(current.requestType ?? 'REGISTRATION')
+    if (requestType !== request.requestType) throw new Error('Заявка изменилась. Обновите список перед рассмотрением.')
+    if (requestType === 'REGISTRATION') {
+      const user = await transaction.get(doc(db, 'users', request.id))
+      if (user.exists()) throw new Error('Аккаунт уже зарегистрирован. Обновите список заявок.')
+    }
+    const profileUpdate = requestType === 'PROFILE_UPDATE'
+    const fullName = String(current.fullName ?? '')
+    const message = profileUpdate ? 'Заявка на изменение данных отклонена.' : 'Заявка на регистрацию отклонена.'
+    transaction.update(requestRef, {
+      status: 'REJECTED', reviewedById: reviewer.id, reviewedByName: reviewer.fullName,
+      reviewReason: normalizedReason, reviewedAt: serverTimestamp(),
+    })
+    transaction.set(auditRef, {
+      actorId: reviewer.id, actorName: reviewer.fullName, actorRole: reviewer.role,
+      title: profileUpdate ? 'Отклонено изменение профиля' : 'Отклонена регистрация',
+      message: normalizedReason ? `${message} Причина: ${normalizedReason}.` : message,
+      targetUserId: request.id, targetUserName: fullName,
+      targetPlotName: Array.isArray(current.plots) ? current.plots.join(', ') : '',
+      createdAt: serverTimestamp(), createdAtClient: Date.now(),
+    })
+    const cleanupJob = profileUpdate ? null : notificationJobData('users', {
+      title: 'Auth cleanup', body: `Delete auth account for rejected registration ${fullName}`,
+      destination: 'auth', category: 'system', targetUserIds: [request.id],
+      sendEmail: false, sendPush: false, authDeleteUserId: request.id, cleanupWebPushUserId: request.id,
+    }, reviewer.id)
+    if (cleanupJob) transaction.set(cleanupRef, cleanupJob)
+    return { requestType, createdAtClient: cleanupJob?.createdAtClient ?? 0 }
+  })
+  if (!rejected) return false
+
+  if (rejected.requestType === 'REGISTRATION') {
+    await signalQueuedNotification(rtdb, reviewer.id, cleanupRef.id, rejected.createdAtClient)
+  }
+  return true
 }
 
 export async function setUserBalance(
@@ -543,19 +559,24 @@ export async function setUserBalance(
 ) {
   if (!Number.isSafeInteger(newBalance)) throw new Error('Укажите баланс в целых рублях.')
   await ensurePlotAccounts(db)
-  const allUsers = await getDocs(collection(db, 'users'))
   const auditRef = doc(collection(db, 'audit_logs'))
   await runTransaction(db, async transaction => {
+    const allUsers = await getDocs(collection(db, 'users'))
     const users = await Promise.all(allUsers.docs.map(user => transaction.get(user.ref)))
     const target = users.find(user => user.id === targetUser.id && user.exists())
-    if (!target) throw new Error('Аккаунт больше не существует.')
-    const data = target.data()!
-    const currentBalance = Number(data.balance ?? 0)
-    if (currentBalance !== targetUser.balance) throw new Error('Баланс уже изменился. Обновите карточку перед корректировкой.')
-    const targetPlots = extractPlotsFromUserData(data)
+    const data = target?.data()
+    const targetPlots = data ? extractPlotsFromUserData(data) : extractPlotsFromUser(targetUser)
+    if (!target && (!targetUser.isPlaceholder || targetPlots.length !== 1 || !PLOT_OPTIONS.includes(targetPlots[0]) || targetUser.id !== `placeholder:${plotDocumentId(targetPlots[0])}`)) {
+      throw new Error('Аккаунт больше не существует.')
+    }
+    if (!target && users.some(user => user.exists() && extractPlotsFromUserData(user.data()!).includes(targetPlots[0]))) {
+      throw new Error('Собственник участка уже зарегистрирован. Обновите список собственников.')
+    }
     const plots = await Promise.all(PLOT_OPTIONS.map(plot => transaction.get(doc(db, PLOTS_COLLECTION, plotDocumentId(plot)))))
     const balances = new Map(PLOT_OPTIONS.map((plot, index) => [plot, Number(plots[index].data()?.balance ?? 0)]))
-    if (!targetPlots.length) transaction.update(target.ref, { balance: newBalance })
+    const currentBalance = data ? Number(data.balance ?? 0) : sumBalanceForPlots(balances, targetPlots)
+    if (currentBalance !== targetUser.balance) throw new Error('Баланс уже изменился. Обновите карточку перед корректировкой.')
+    if (!targetPlots.length && target) transaction.update(target.ref, { balance: newBalance })
     else {
       const deltas = splitAmountAcrossPlots(targetPlots, newBalance - sumBalanceForPlots(balances, targetPlots, currentBalance))
       deltas.forEach((delta, plot) => balances.set(plot, (balances.get(plot) ?? 0) + delta))
@@ -565,7 +586,7 @@ export async function setUserBalance(
     transaction.set(auditRef, {
       actorId: actor.id, actorName: actor.fullName, actorRole: actor.role,
       title: 'Изменен баланс участника', message: `Баланс изменен с ${currentBalance} ₽ на ${newBalance} ₽.`,
-      targetUserId: targetUser.id, targetUserName: String(data.fullName ?? ''), targetPlotName: targetPlots.join(', '),
+      targetUserId: targetUser.id, targetUserName: String(data?.fullName ?? targetUser.fullName), targetPlotName: targetPlots.join(', '),
       createdAt: serverTimestamp(), createdAtClient: Date.now(),
     })
   })
@@ -592,37 +613,27 @@ export async function setUserRole(
 }
 
 export async function deleteUserRecord(db: Firestore, actor: RemoteUser, targetUser: RemoteUser) {
-  await enqueueTargetedNotification(
-    db,
-    {
-      title: 'Auth cleanup',
-      body: `Delete auth account for ${targetUser.fullName}`,
-      destination: 'auth',
-      category: 'system',
-      targetUserIds: [targetUser.id],
-      sendEmail: false,
-      sendPush: false,
-      authDeleteUserId: targetUser.id,
-      cleanupWebPushUserId: targetUser.id,
-    },
-    {
-      creatorId: actor.id,
-    },
-  )
-  await Promise.all([
-    deleteDoc(doc(db, 'users', targetUser.id)),
-    deleteDoc(doc(db, 'registration_requests', targetUser.id)),
-  ])
-
-  await createAuditLog(
-    db,
-    actor,
-    'Удален пользователь',
-    'Пользователь лишен доступа к приложению и веб-версии.',
-    targetUser.id,
-    targetUser.fullName,
-    formatPlots(targetUser),
-  )
+  if (actor.role !== 'ADMIN') throw new Error('Удалить пользователя может только администратор.')
+  if (actor.id === targetUser.id) throw new Error('Нельзя удалить свой аккаунт.')
+  const job = notificationJobData('users', {
+    title: 'Auth cleanup', body: `Delete auth account for ${targetUser.fullName}`,
+    destination: 'auth', category: 'system', targetUserIds: [targetUser.id],
+    sendEmail: false, sendPush: false, authDeleteUserId: targetUser.id, cleanupWebPushUserId: targetUser.id,
+  }, actor.id)
+  if (!job) throw new Error('Не удалось подготовить удаление аккаунта.')
+  const jobRef = doc(collection(db, NOTIFICATION_JOBS_COLLECTION))
+  const batch = writeBatch(db)
+  batch.delete(doc(db, 'users', targetUser.id))
+  batch.delete(doc(db, 'registration_requests', targetUser.id))
+  batch.set(jobRef, job)
+  batch.set(doc(collection(db, 'audit_logs')), {
+    actorId: actor.id, actorName: actor.fullName, actorRole: actor.role,
+    title: 'Удален пользователь', message: 'Пользователь лишен доступа к приложению и веб-версии.',
+    targetUserId: targetUser.id, targetUserName: targetUser.fullName, targetPlotName: formatPlots(targetUser),
+    createdAt: serverTimestamp(), createdAtClient: Date.now(),
+  })
+  await batch.commit()
+  await signalQueuedNotification(rtdb, actor.id, jobRef.id, job.createdAtClient)
 }
 const isChatReadSessionCurrent = (_db: Firestore, userId: string) => auth?.currentUser?.uid === userId
 export const markChatRead = createChatReadPersistence<Firestore>({
@@ -652,6 +663,7 @@ export async function sendChatMessage(
 ) {
   const normalizedText = text.trim()
   if (!normalizedText && attachments.length === 0) return
+  assertChatMessageLength(normalizedText)
 
   await addDoc(collection(db, 'chat_messages'), {
     senderId: profile.id,
@@ -677,6 +689,7 @@ export async function sendChatMessage(
 export async function saveEditedChatMessage(db: Firestore, profile: RemoteUser, messageId: string, text: string) {
   const normalizedText = text.trim()
   if (!normalizedText) return
+  assertChatMessageLength(normalizedText)
 
   await updateDoc(doc(db, 'chat_messages', messageId), {
     text: normalizedText,
@@ -733,9 +746,9 @@ export async function createEvent(db: Firestore, creator: RemoteUser, draft: Eve
   const eventRef = doc(collection(db, 'events'))
   const auditRef = doc(collection(db, 'audit_logs'))
   if (type === 'CHARGE') await ensurePlotAccounts(db)
-  const userDocs = type === 'CHARGE' ? (await getDocs(collection(db, 'users'))).docs : []
   await runTransaction(db, async transaction => {
     if (type === 'CHARGE') {
+      const userDocs = (await getDocs(collection(db, 'users'))).docs
       const users = await Promise.all(userDocs.map(user => transaction.get(user.ref)))
       const plots = await Promise.all(PLOT_OPTIONS.map(plot => transaction.get(doc(db, PLOTS_COLLECTION, plotDocumentId(plot)))))
       const balances = new Map(PLOT_OPTIONS.map((plot, index) => [plot, Number(plots[index].data()?.balance ?? 0) - amount]))
@@ -996,7 +1009,6 @@ export async function confirmPaymentRequest(
   requestId: string,
 ) {
   await ensurePlotAccounts(db)
-  const allUsersSnapshot = await getDocs(collection(db, 'users'))
   const requestRef = doc(db, 'payment_requests', requestId)
   const fundsRef = doc(db, 'app_settings', 'community_funds')
 
@@ -1011,6 +1023,7 @@ export async function confirmPaymentRequest(
     if (status !== 'PENDING') return null
     if (!userId || !Number.isSafeInteger(amount) || amount <= 0) throw new Error('В заявке указана некорректная сумма или плательщик.')
 
+    const allUsersSnapshot = await getDocs(collection(db, 'users'))
     const currentFundsSnapshot = await transaction.get(fundsRef)
 
     const requestPlotIds = Array.isArray(requestData.plotIds)
@@ -1099,10 +1112,19 @@ export async function voteInPoll(db: Firestore, profile: RemoteUser, poll: Commu
     if (!current || current.type !== 'POLL') throw new Error('Голосование удалено.')
     if (current.isClosed) throw new Error('Голосование уже завершено.')
     if (!current.pollOptions?.includes(option)) throw new Error('Вариант ответа больше недоступен.')
+    const pollVotes = { ...current.pollVotes, [option]: Number(current.pollVotes?.[option] ?? 0) + 1 }
+    if (current.isAnonymous) {
+      const voteRef = doc(db, 'poll_votes', profile.id, 'votes', poll.id)
+      const ownVote = await transaction.get(voteRef)
+      if (ownVote.exists()) return
+      transaction.set(voteRef, { option })
+      transaction.update(reference, { pollVotes })
+      return
+    }
     const voterIds: string[] = current.voterIds ?? []
     if (voterIds.includes(profile.id)) return
     transaction.update(reference, {
-      pollVotes: { ...current.pollVotes, [option]: Number(current.pollVotes?.[option] ?? 0) + 1 },
+      pollVotes,
       voterIds: [...voterIds, profile.id],
       voterChoices: { ...current.voterChoices, [profile.id]: option },
     })

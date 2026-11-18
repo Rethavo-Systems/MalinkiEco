@@ -55,6 +55,8 @@ export type CommunityEvent = {
   pollVotes: Record<string, number>
   voterIds: string[]
   voterChoices: Record<string, string>
+  ownVote?: string
+  ownVoteStatus?: 'loading' | 'ready' | 'error'
   targetUserId: string
   createdById: string
   createdByName: string

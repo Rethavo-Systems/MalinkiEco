@@ -15,6 +15,7 @@ import { EMPTY_PAYMENT_CONFIG } from '../constants'
 import { db, firebaseSetup } from '../lib/firebase'
 import { PLOTS_COLLECTION, buildOwnersDirectory, normalizePlotName } from '../lib/plotAccounts'
 import { newestCreatedFirst } from '../lib/requestHistory'
+import { mergeChatHistory } from '../lib/chatHistory'
 import type {
   AuditLogEntry,
   ChatAttachment,
@@ -82,6 +83,28 @@ function parseChatAttachments(value: unknown): ChatAttachment[] {
     .filter((item): item is ChatAttachment => item !== null)
 }
 
+function toChatMessage(item: QueryDocumentSnapshot<DocumentData>): ChatMessage {
+  const data = item.data()
+  return {
+    id: item.id,
+    senderId: String(data.senderId ?? ''),
+    senderName: String(data.senderName ?? ''),
+    senderPlotName: String(data.senderPlotName ?? ''),
+    text: String(data.text ?? ''),
+    attachments: parseChatAttachments(data.attachments),
+    reactions: data.reactions && typeof data.reactions === 'object' ? Object.fromEntries(Object.entries(data.reactions).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) : {},
+    replyToMessageId: String(data.replyToMessageId ?? ''),
+    replyToSenderName: String(data.replyToSenderName ?? ''),
+    replyToSenderPlotName: String(data.replyToSenderPlotName ?? ''),
+    replyToText: String(data.replyToText ?? ''),
+    mentionedUserIds: Array.isArray(data.mentionedUserIds) ? data.mentionedUserIds.map(String).filter(Boolean) : [],
+    isPinned: Boolean(data.isPinned ?? false),
+    pinnedAtClient: Number(data.pinnedAtClient ?? 0),
+    createdAtClient: extractCreatedAt(data.createdAt, data.createdAtClient),
+    updatedAtClient: Number(data.updatedAtClient ?? 0),
+  }
+}
+
 function toManualPaymentRequest(item: QueryDocumentSnapshot<DocumentData>, statusFallback?: ManualPaymentStatus): ManualPaymentRequest {
   const data = item.data()
   const eventIds = parseStringList(data.eventIds)
@@ -107,13 +130,16 @@ function toManualPaymentRequest(item: QueryDocumentSnapshot<DocumentData>, statu
 export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
   const profileId = profile?.id ?? null
   const profileRole = profile?.role ?? null
-  const profilePlotKey = (profile?.plots ?? []).map(plot => plot.trim()).filter(Boolean).join('|')
+  const profilePlotKey = (profile?.plots ?? []).filter(plot => plot.trim()).join('|')
   const profilePaymentPlotIds = useMemo(
     () => Array.from(new Set(profilePlotKey.split('|').filter(Boolean))),
     [profilePlotKey],
   )
   const [users, setUsers] = useState<RemoteUser[]>([])
   const [events, setEvents] = useState<CommunityEvent[]>([])
+  const [privatePollVotes, setPrivatePollVotes] = useState<{
+    userId: string; status: 'loading' | 'ready' | 'error'; choices: Record<string, string>
+  }>({ userId: '', status: 'loading', choices: {} })
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [paymentConfig, setPaymentConfig] = useState<PaymentTransferConfig>(EMPTY_PAYMENT_CONFIG)
   const [communityFunds, setCommunityFunds] = useState(0)
@@ -123,11 +149,21 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
   const [plotBalances, setPlotBalances] = useState<Map<string, number>>(new Map())
 
   useEffect(() => {
+    if (!firebaseSetup.ready || !db || !profileId || activeTab !== 'polls') return
+    setPrivatePollVotes({ userId: profileId, status: 'loading', choices: {} })
+    return onSnapshot(collection(db, 'poll_votes', profileId, 'votes'), snapshot => {
+      const choices = Object.fromEntries(snapshot.docs.map(vote => [vote.id, String(vote.data().option ?? '')]))
+      setPrivatePollVotes({ userId: profileId, status: 'ready', choices })
+    }, () => setPrivatePollVotes({ userId: profileId, status: 'error', choices: {} }))
+  }, [activeTab, profileId])
+
+  useEffect(() => {
     if (!firebaseSetup.ready || !db || !profileId) return
     const needsEvents = true
     const needsChat = true
     let unsubscribeEvents = () => {}
     let unsubscribeChat = () => {}
+    let unsubscribePinnedChat = () => {}
     const usersQuery = query(collection(db, 'users'), orderBy('fullName', 'asc'))
 
     const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
@@ -172,38 +208,28 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
     }
 
     if (needsChat) {
+      let recentMessages: ChatMessage[] = []
+      let pinnedMessages: ChatMessage[] = []
+      const publishMessages = () => setChatMessages(mergeChatHistory(recentMessages, pinnedMessages))
       unsubscribeChat = onSnapshot(
         query(collection(db, 'chat_messages'), orderBy('createdAt', 'asc'), limitToLast(120)),
         (snapshot) => {
-          const nextMessages = snapshot.docs.map<ChatMessage>((item) => {
-            const data = item.data()
-            return {
-              id: item.id,
-              senderId: String(data.senderId ?? ''),
-              senderName: String(data.senderName ?? ''),
-              senderPlotName: String(data.senderPlotName ?? ''),
-              text: String(data.text ?? ''),
-              attachments: parseChatAttachments(data.attachments),
-              reactions: data.reactions && typeof data.reactions === 'object' ? Object.fromEntries(Object.entries(data.reactions).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) : {},
-              replyToMessageId: String(data.replyToMessageId ?? ''),
-              replyToSenderName: String(data.replyToSenderName ?? ''),
-              replyToSenderPlotName: String(data.replyToSenderPlotName ?? ''),
-              replyToText: String(data.replyToText ?? ''),
-              mentionedUserIds: Array.isArray(data.mentionedUserIds) ? data.mentionedUserIds.map(String).filter(Boolean) : [],
-              isPinned: Boolean(data.isPinned ?? false),
-              pinnedAtClient: Number(data.pinnedAtClient ?? 0),
-              createdAtClient: extractCreatedAt(data.createdAt, data.createdAtClient),
-              updatedAtClient: Number(data.updatedAtClient ?? 0),
-            }
-          })
-          setChatMessages(nextMessages)
+          recentMessages = snapshot.docs.map(toChatMessage)
+          publishMessages()
+        },
+      )
+      unsubscribePinnedChat = onSnapshot(
+        query(collection(db, 'chat_messages'), where('isPinned', '==', true)),
+        (snapshot) => {
+          pinnedMessages = snapshot.docs.map(toChatMessage)
+          publishMessages()
         },
       )
     } else {
       setChatMessages([])
     }
 
-    return () => { unsubscribeUsers(); unsubscribeEvents(); unsubscribeChat() }
+    return () => { unsubscribeUsers(); unsubscribeEvents(); unsubscribeChat(); unsubscribePinnedChat() }
   }, [profileId])
 
   useEffect(() => {
@@ -439,11 +465,16 @@ export function useResidentData(profile: RemoteUser | null, activeTab: TabKey) {
   }, [activeTab, profileId, profilePaymentPlotIds, profileRole])
 
   const owners = useMemo(() => buildOwnersDirectory(users, plotBalances), [users, plotBalances])
+  const eventsWithOwnVotes = useMemo(() => events.map<CommunityEvent>(event => {
+    if (event.type !== 'POLL' || !event.isAnonymous) return event
+    const own = privatePollVotes.userId === profileId ? privatePollVotes : null
+    return { ...event, ownVote: own?.choices[event.id] ?? '', ownVoteStatus: own?.status ?? 'loading' }
+  }), [events, privatePollVotes, profileId])
 
   return {
     users,
     owners,
-    events,
+    events: eventsWithOwnVotes,
     chatMessages,
     paymentConfig,
     communityFunds,

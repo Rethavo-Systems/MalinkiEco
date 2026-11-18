@@ -15,7 +15,7 @@ registerHooks({ resolve(specifier, context, next) {
   }
   return next(specifier, context)
 } })
-const { confirmPaymentRequest, rejectPaymentRequest, createPaymentRequest, ensurePlotAccounts, createEvent, setUserBalance, enqueueTargetedNotification } = await import('../src/lib/appApi.ts')
+const { confirmPaymentRequest, rejectPaymentRequest, createPaymentRequest, ensurePlotAccounts, createEvent, setUserBalance, enqueueTargetedNotification, approveRegistrationRequest } = await import('../src/lib/appApi.ts')
 const reviewer = { id:'admin', fullName:'Administrator', role:'ADMIN' }
 function seed() {
   const plots = Object.fromEntries(Array.from({length:35}, (_, i) => [`plots/plot-${String(i+1).padStart(2,'0')}`, {name:`Участок ${i+1}`, balance:0}]))
@@ -148,6 +148,79 @@ test('manual correction updates shared accounts and rejects stale card balance',
   assert.equal(db.values.get('users/shared3').balance,251)
   assert.equal(db.values.get('users/other4').balance,250)
   await assert.rejects(setUserBalance(db,reviewer,{id:'payer',balance:0},1),/Баланс уже изменился/)
+})
+
+test('every plot from 1 to 35 can report payment and credit its shared owners', async () => {
+  const allPlots = Object.fromEntries(Array.from({ length: 35 }, (_, index) => [
+    `plots/plot-${String(index + 1).padStart(2, '0')}`, { name: `Участок ${index + 1}`, balance: -1000 },
+  ]))
+  for (let number = 1; number <= 35; number++) {
+    const db = createStore({
+      ...allPlots,
+      'app_settings/community_funds': { amount: 0 },
+      'users/payer': { plots: [String(number)], balance: -1000 },
+      'users/shared': { plots: [String(number)], balance: -1000 },
+    })
+    const payer = { id: 'payer', fullName: 'Payer', plots: [String(number)], plotName: String(number) }
+    await createPaymentRequest(db, payer, 1000, [], 'За ноябрь')
+    const [path, request] = [...db.values.entries()].find(([path]) => path.startsWith('payment_requests/'))
+    assert.deepEqual(request.plotIds, [String(number)])
+    await confirmPaymentRequest(db, reviewer, path.split('/')[1])
+    assert.equal(db.values.get('users/payer').balance, 0)
+    assert.equal(db.values.get('users/shared').balance, 0)
+    assert.equal(db.values.get('app_settings/community_funds').amount, 1000)
+    for (let other = 1; other <= 35; other++) {
+      assert.equal(db.values.get(`plots/plot-${String(other).padStart(2, '0')}`).balance, other === number ? 0 : -1000)
+    }
+  }
+})
+
+test('unregistered plot balance can be corrected without creating a resident account', async () => {
+  const db = createStore(seed())
+  const placeholder = { id: 'placeholder:plot-01', fullName: 'Собственник не зарегистрирован', isPlaceholder: true, plots: ['Участок 1'], plotName: 'Участок 1', balance: 0 }
+  await setUserBalance(db, reviewer, placeholder, -5000)
+  assert.equal(db.values.get('plots/plot-01').balance, -5000)
+  assert.equal(db.values.get('plots/plot-02').balance, 0)
+  assert.equal(db.values.has('users/placeholder:plot-01'), false)
+  await assert.rejects(setUserBalance(db, reviewer, placeholder, -1000), /Баланс уже изменился/)
+  const registered = { ...placeholder, id: 'placeholder:plot-03', plots: ['Участок 3'], plotName: 'Участок 3' }
+  await assert.rejects(setUserBalance(db, reviewer, registered, -1000), /уже зарегистрирован/)
+  assert.equal(db.values.get('plots/plot-03').balance, 0)
+})
+
+test('registration racing a charge and payment receives the final plot balance', async () => {
+  const values = seed()
+  values['registration_requests/new-owner'] = {
+    status: 'PENDING', requestType: 'REGISTRATION', plots: ['3'], fullName: 'New owner',
+    phone: '89160000000', authEmail: 'new@example.test', login: 'new-owner',
+  }
+  const db = createStore(values)
+  await Promise.all([
+    approveRegistrationRequest(db, reviewer, { id: 'new-owner', requestType: 'REGISTRATION' }),
+    createEvent(db, reviewer, { type: 'CHARGE', title: 'Collection', message: '', amount: 1000 }),
+    confirmPaymentRequest(db, reviewer, 'a'),
+  ])
+  assert.equal(db.values.get('plots/plot-03').balance, -900)
+  assert.equal(db.values.get('users/new-owner').balance, -900)
+  assert.equal(db.values.get('users/shared3').balance, -900)
+  assert.ok(db.retries > 0)
+})
+
+test('registration racing a placeholder correction keeps the new owner in sync', async () => {
+  const values = seed()
+  values['registration_requests/new-owner'] = {
+    status: 'PENDING', requestType: 'REGISTRATION', plots: ['1'], fullName: 'New owner',
+    phone: '89160000000', authEmail: 'new@example.test', login: 'new-owner',
+  }
+  const db = createStore(values)
+  const placeholder = { id: 'placeholder:plot-01', isPlaceholder: true, fullName: 'Placeholder', plots: ['Участок 1'], plotName: 'Участок 1', balance: 0 }
+  const results = await Promise.allSettled([
+    approveRegistrationRequest(db, reviewer, { id: 'new-owner', requestType: 'REGISTRATION' }),
+    setUserBalance(db, reviewer, placeholder, -5000),
+  ])
+  assert.equal(results[0].status, 'fulfilled')
+  if (results[1].status === 'rejected') assert.match(results[1].reason.message, /уже зарегистрирован/)
+  assert.equal(db.values.get('users/new-owner').balance, db.values.get('plots/plot-01').balance)
 })
 test('failed realtime signal preserves the durable notification for worker fallback', async () => {
   const db = createStore()

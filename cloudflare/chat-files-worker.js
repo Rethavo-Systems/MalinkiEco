@@ -119,6 +119,7 @@ async function prepareDirectChatFileUpload(request, env) {
       uploadedAtClient: now,
       expiresAtClient,
     }
+    await registerChatFileOwnership(env, actorId, storageKey, expiresAtClient)
     const upload = await createYandexUploadTarget(env, storageKey)
     const ticket = await signDirectUploadTicket(env, {
       kind: 'chat-file',
@@ -160,6 +161,7 @@ async function completeDirectChatFileUpload(request, env, ctx) {
       error.httpStatus = 403
       throw error
     }
+    await ensureChatFileOwnership(env, actorId, ticket.storageKey, ticket.attachment?.expiresAtClient)
 
     const resource = await getYandexResource(env, ticket.storageKey)
     if (!resource || Number(resource.size || 0) !== Number(ticket.attachment?.size || 0)) {
@@ -386,6 +388,7 @@ async function uploadChatFile(request, env, ctx) {
     const storageFileName = chatStorageFileName(expiresAtClient, fileId, cleanName)
     const storageKey = `${CHAT_FILES_PREFIX}${storageFileName}`
 
+    await registerChatFileOwnership(env, actorId, storageKey, expiresAtClient)
     await putStoredObject(env, storageKey, await file.arrayBuffer(), {
       contentType,
       metadata: {
@@ -630,7 +633,7 @@ async function deleteChatFile(request, env) {
   try {
     assertRequiredEnv(env)
 
-    const { actorDoc } = await getAuthorizedActor(request, env)
+    const { actorId, actorDoc } = await getAuthorizedActor(request, env)
     const actorRole = String(actorDoc.role || 'USER')
     const gateDoc = await getFirestoreDocument(env, 'app_settings/app_gate')
     ensureAppAvailableForActor(gateDoc, actorRole)
@@ -641,7 +644,10 @@ async function deleteChatFile(request, env) {
       return jsonResponse({ ok: false, error: 'Файл не найден.' }, 404, request, env)
     }
 
-    await deleteStoredObject(env, `${CHAT_FILES_PREFIX}${fileName}`)
+    const storageKey = `${CHAT_FILES_PREFIX}${fileName}`
+    const ownership = await getFirestoreDocument(env, await chatFileOwnershipDocumentPath(storageKey))
+    assertChatFileOwner(ownership, actorId, storageKey)
+    await deleteStoredObject(env, storageKey)
     return jsonResponse({ ok: true }, 200, request, env)
   } catch (error) {
     console.error('[chat-files-worker] delete failed', error)
@@ -652,6 +658,42 @@ async function deleteChatFile(request, env) {
       env,
     )
   }
+}
+
+export async function chatFileOwnershipDocumentPath(storageKey) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(storageKey))
+  const id = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+  return `chat_files/${id}`
+}
+
+function assertChatFileOwner(ownership, actorId, storageKey) {
+  if (ownership?.ownerId === actorId && ownership?.storageKey === storageKey) return
+  const error = new Error('Недостаточно прав для удаления этого файла.')
+  error.httpStatus = 403
+  throw error
+}
+
+async function registerChatFileOwnership(env, actorId, storageKey, expiresAtClient) {
+  const documentPath = await chatFileOwnershipDocumentPath(storageKey)
+  const id = documentPath.split('/')[1]
+  const response = await firestoreFetch(env, `${firestoreBase(env)}/chat_files?documentId=${id}`, {
+    method: 'POST',
+    body: JSON.stringify({ fields: toFirestoreFields({ ownerId: actorId, storageKey, expiresAtClient }) }),
+  })
+  if (response.status === 409) {
+    assertChatFileOwner(await getFirestoreDocument(env, documentPath), actorId, storageKey)
+    return
+  }
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error?.message || `Firestore file ownership write failed: ${response.status}`)
+  }
+}
+
+async function ensureChatFileOwnership(env, actorId, storageKey, expiresAtClient) {
+  const ownership = await getFirestoreDocument(env, await chatFileOwnershipDocumentPath(storageKey))
+  if (ownership) assertChatFileOwner(ownership, actorId, storageKey)
+  else await registerChatFileOwnership(env, actorId, storageKey, expiresAtClient)
 }
 
 async function runEmergencyStorageCleanup(env) {
@@ -1110,11 +1152,6 @@ async function getAuthorizedActor(request, env) {
 }
 
 function ensureAppAvailableForActor(gateDoc, actorRole) {
-  // Maintenance mode is enforced by the web UI. File access only requires a valid signed-in resident.
-  void gateDoc
-  void actorRole
-  return
-
   const isPrivileged = actorRole === 'ADMIN' || actorRole === 'TESTER'
   if ((Boolean(gateDoc?.maintenanceEnabled) || Boolean(gateDoc?.errorEnabled)) && !isPrivileged) {
     const error = new Error('Сайт временно недоступен.')

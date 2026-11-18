@@ -72,6 +72,76 @@ service cloud.firestore {
         request.resource.data.reviewReason == '';
     }
 
+    function canApproveProfileUpdate(userId) {
+      let requestPath = /databases/$(database)/documents/registration_requests/$(userId);
+      let pending = get(requestPath).data;
+      let reviewed = getAfter(requestPath).data;
+      let nextFullName = pending.get('proposedFullName', '') == '' ? pending.get('fullName', '') : pending.proposedFullName;
+      let nextPhone = pending.get('proposedPhone', '') == '' ? pending.get('phone', '') : pending.proposedPhone;
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'phone']) &&
+        pending.requestType == 'PROFILE_UPDATE' &&
+        pending.status == 'PENDING' &&
+        reviewed.status == 'APPROVED' &&
+        reviewed.reviewedById == request.auth.uid &&
+        request.resource.data.fullName == nextFullName &&
+        request.resource.data.phone == nextPhone;
+    }
+
+    function canCastOwnPollVote() {
+      let storedVoters = resource.data.get('voterIds', []);
+      let storedChoices = resource.data.get('voterChoices', {});
+      let previousVoters = storedVoters is list ? storedVoters : [];
+      let previousChoices = storedChoices is map ? storedChoices : {};
+      let choice = request.resource.data.voterChoices[request.auth.uid];
+      return !(request.auth.uid in previousVoters) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pollVotes', 'voterIds', 'voterChoices']) &&
+        request.resource.data.voterIds == previousVoters.concat([request.auth.uid]) &&
+        request.resource.data.voterChoices.diff(previousChoices).affectedKeys().hasOnly([request.auth.uid]) &&
+        validPollVoteIncrement(resource.data, request.resource.data, choice);
+    }
+
+    function validPollVoteIncrement(before, after, choice) {
+      let storedVotes = before.get('pollVotes', {});
+      let previousVotes = storedVotes is map ? storedVotes : {};
+      return choice is string &&
+        choice in before.pollOptions &&
+        after.pollVotes.diff(previousVotes).affectedKeys().hasOnly([choice]) &&
+        after.pollVotes[choice] is int &&
+        after.pollVotes[choice] == previousVotes.get(choice, 0) + 1;
+    }
+
+    function anonymousPollHasNoPublicVotes(data) {
+      return data.get('voterIds', []) == [] && data.get('voterChoices', {}) == {};
+    }
+
+    function validAnonymousPollCreate() {
+      let data = request.resource.data;
+      return anonymousPollHasNoPublicVotes(data) &&
+        data.pollVotes.keys().toSet() == data.pollOptions.toSet() &&
+        data.pollVotes.values().hasOnly([0]);
+    }
+
+    function canCastAnonymousPollVote(eventId) {
+      let votePath = /databases/$(database)/documents/poll_votes/$(request.auth.uid)/votes/$(eventId);
+      let vote = getAfter(votePath).data;
+      return !exists(votePath) &&
+        anonymousPollHasNoPublicVotes(resource.data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pollVotes']) &&
+        validPollVoteIncrement(resource.data, request.resource.data, vote.option);
+    }
+
+    function canCreateAnonymousPollVote(pollId) {
+      let pollPath = /databases/$(database)/documents/events/$(pollId);
+      let before = get(pollPath).data;
+      let after = getAfter(pollPath).data;
+      return before.type == 'POLL' && before.get('isAnonymous', false) == true &&
+        (before.get('isClosed', false) == false || before.isClosed == null) &&
+        anonymousPollHasNoPublicVotes(before) &&
+        request.resource.data.keys().hasOnly(['option']) &&
+        after.diff(before).affectedKeys().hasOnly(['pollVotes']) &&
+        validPollVoteIncrement(before, after, request.resource.data.option);
+    }
+
     function validNotificationJobBase() {
       return request.resource.data.status == 'PENDING' &&
         request.resource.data.title is string &&
@@ -88,9 +158,31 @@ service cloud.firestore {
         request.resource.data.sendPush is bool;
     }
 
+    function canCleanupRejectedRegistration(userId) {
+      let reviewed = getAfter(/databases/$(database)/documents/registration_requests/$(userId)).data;
+      return !exists(/databases/$(database)/documents/users/$(userId)) &&
+        reviewed.status == 'REJECTED' &&
+        reviewed.get('requestType', 'REGISTRATION') == 'REGISTRATION' &&
+        reviewed.reviewedById == request.auth.uid;
+    }
+
+    function canRequestAccountCleanup() {
+      let authDeleteUserId = request.resource.data.get('authDeleteUserId', '');
+      let cleanupWebPushUserId = request.resource.data.get('cleanupWebPushUserId', '');
+      return (authDeleteUserId == '' && cleanupWebPushUserId == '') ||
+        isAdmin() ||
+        (isModerator() &&
+         authDeleteUserId is string &&
+         authDeleteUserId.size() > 0 &&
+         cleanupWebPushUserId == authDeleteUserId &&
+         canCleanupRejectedRegistration(authDeleteUserId));
+    }
+
     function canCreateNotificationJob() {
       return signedIn() &&
+        request.resource.data.createdById == request.auth.uid &&
         validNotificationJobBase() &&
+        canRequestAccountCleanup() &&
         (
           (
             request.resource.data.audience in ['emails', 'direct_email'] &&
@@ -206,17 +298,16 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn();
 
-      allow create: if isAdmin() || isModerator() ||
-        (signedIn() &&
-         request.auth.uid == userId &&
-         request.resource.data.role in ['USER', 'MODERATOR', 'ADMIN', 'TESTER']);
+      allow create: if isAdmin() ||
+        (isModerator() && request.resource.data.role == 'USER');
 
       allow update: if isAdmin() ||
         (isModerator() &&
-         request.resource.data.diff(resource.data).changedKeys().hasOnly(['balance'])) ||
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance'])) ||
+        (isModerator() && canApproveProfileUpdate(userId)) ||
         (signedIn() &&
          request.auth.uid == userId &&
-         request.resource.data.diff(resource.data).changedKeys().hasOnly(['lastChatReadAt', 'notificationSettings']));
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastChatReadAt', 'notificationSettings']));
 
       allow delete: if isAdmin();
     }
@@ -253,7 +344,7 @@ service cloud.firestore {
         canWriteOwnRegistrationRequest(requestId) ||
         canWriteOwnProfileUpdateRequest(requestId);
 
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     match /notification_jobs/{jobId} {
@@ -286,6 +377,12 @@ service cloud.firestore {
 
     match /chat_files/{fileId} {
       allow read, write: if false;
+    }
+
+    match /poll_votes/{userId}/votes/{pollId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId && canCreateAnonymousPollVote(pollId);
+      allow update, delete: if false;
     }
 
     match /chat_messages/{messageId} {
@@ -342,7 +439,7 @@ service cloud.firestore {
     match /events/{eventId} {
       allow read: if signedIn();
 
-      allow create: if
+      allow create: if (
         (
           canCreateEvents() &&
           request.resource.data.createdById == request.auth.uid
@@ -351,13 +448,18 @@ service cloud.firestore {
           signedIn() &&
           request.resource.data.createdById == request.auth.uid &&
           request.resource.data.type == 'POLL'
-        );
+        )
+      ) && (
+        request.resource.data.type != 'POLL' ||
+        request.resource.data.get('isAnonymous', false) != true ||
+        validAnonymousPollCreate()
+      );
 
       allow update: if
         (
           canCreateEvents() &&
           resource.data.type == 'CHARGE' &&
-          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'isClosed',
             'closedById',
             'closedByName',
@@ -372,7 +474,7 @@ service cloud.firestore {
             canCreateEvents() ||
             resource.data.createdById == request.auth.uid
           ) &&
-          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'isClosed',
             'closedById',
             'closedByName',
@@ -383,18 +485,20 @@ service cloud.firestore {
         (
           signedIn() &&
           resource.data.type == 'POLL' &&
-          (resource.data.isClosed == false || resource.data.isClosed == null) &&
-          !(request.auth.uid in resource.data.voterIds) &&
-          request.auth.uid in request.resource.data.voterIds &&
-          request.resource.data.diff(resource.data).changedKeys().hasOnly([
-            'pollVotes',
-            'voterIds',
-            'voterChoices'
-          ])
+          (resource.data.get('isClosed', false) == false || resource.data.isClosed == null) &&
+          resource.data.get('isAnonymous', false) != true &&
+          canCastOwnPollVote()
+        ) ||
+        (
+          signedIn() &&
+          resource.data.type == 'POLL' &&
+          resource.data.get('isAnonymous', false) == true &&
+          (resource.data.get('isClosed', false) == false || resource.data.isClosed == null) &&
+          canCastAnonymousPollVote(eventId)
         ) ||
         (
           canCreateEvents() &&
-          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'title',
             'message',
             'editedById',
